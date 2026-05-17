@@ -119,57 +119,62 @@ class BaseDetector(ABC):
         else:
             return self._detect_univariate(time_series)
 
-    def calculate_std(self, residual: np.array) -> float:
-        """
-        Calculate the standard deviation of the residuals.
+    def calculate_std(self, residual: np.array, apply_holidays=False) -> float:
+        def _calculate_std(self, residual: np.array) -> float:
+            """
+            Calculate the standard deviation of the residuals.
 
-        Args:
-            residual: Array of residuals
+            Args:
+                residual: Array of residuals
 
-        Returns:
-            Standard deviation of residuals
-        """
-        if self.params["std_type"] == "default":
-            return np.sqrt(np.mean(residual**2))
-        elif self.params["std_type"] == "default_robust":
-            # Robust RMS using trimmed sample
-            r = np.asarray(residual)
-            abs_r = np.abs(r)
+            Returns:
+                Standard deviation of residuals
+            """
+            if self.params["std_type"] == "default":
+                return np.sqrt(np.mean(residual**2))
+            elif self.params["std_type"] == "default_robust":
+                # Robust RMS using trimmed sample
+                r = np.asarray(residual)
+                abs_r = np.abs(r)
 
-            if abs_r.size < 20:
-                return np.std(r)
+                if abs_r.size < 20:
+                    return np.std(r)
 
-            q_lo, q_hi = 0.75, 0.98
-            a_emp, b_emp = np.quantile(abs_r, [q_lo, q_hi])
+                q_lo, q_hi = 0.75, 0.98
+                a_emp, b_emp = np.quantile(abs_r, [q_lo, q_hi])
 
-            mask = (abs_r >= a_emp) & (abs_r <= b_emp)
-            trimmed = r[mask]
+                mask = (abs_r >= a_emp) & (abs_r <= b_emp)
+                trimmed = r[mask]
 
-            if trimmed.size < 10:
-                return np.std(r)
+                if trimmed.size < 10:
+                    return np.std(r)
 
-            # raw (biased) estimate on truncated sample
-            sigma_raw2 = np.mean(trimmed**2)
+                # raw (biased) estimate on truncated sample
+                sigma_raw2 = np.mean(trimmed**2)
 
-            # theoretical correction factor
-            a = stats.norm.ppf(q_lo)
-            b = stats.norm.ppf(q_hi)
+                # theoretical correction factor
+                a = stats.norm.ppf(q_lo)
+                b = stats.norm.ppf(q_hi)
 
-            phi = stats.norm.pdf
-            Phi = stats.norm.cdf
+                phi = stats.norm.pdf
+                Phi = stats.norm.cdf
 
-            C = ((-b * phi(b) + Phi(b)) - (-a * phi(a) + Phi(a))) / (Phi(b) - Phi(a))
+                C = ((-b * phi(b) + Phi(b)) - (-a * phi(a) + Phi(a))) / (Phi(b) - Phi(a))
 
-            sigma = np.sqrt(sigma_raw2 / C)
-            return sigma
-        elif self.params["std_type"] == "mad":
-            return np.median(np.abs(residual)) / stats.norm.ppf(0.75)
-        elif self.params["std_type"] == "iqr":
-            return np.subtract(*np.percentile(residual, [75, 25])) / (stats.norm.ppf(0.75) - stats.norm.ppf(0.25))
-        elif self.params["std_type"] == "qn_scale":
-            return qn_scale(residual)
-        else:
-            raise ValueError(f"Unknown std_type: {self.params['std_type']}")
+                sigma = np.sqrt(sigma_raw2 / C)
+                return sigma
+            elif self.params["std_type"] == "mad":
+                return np.median(np.abs(residual)) / stats.norm.ppf(0.75)
+            elif self.params["std_type"] == "iqr":
+                return np.subtract(*np.percentile(residual, [75, 25])) / (stats.norm.ppf(0.75) - stats.norm.ppf(0.25))
+            elif self.params["std_type"] == "qn_scale":
+                return qn_scale(residual)
+            else:
+                raise ValueError(f"Unknown std_type: {self.params['std_type']}")
+
+        ans = _calculate_std(self, residual)
+        if (apply_holidays):
+            holidays = holidays.
 
     def calculate_seasonal_std(
         self, residual: np.array, period: int, clip: Optional[tuple[float, float]] = None
