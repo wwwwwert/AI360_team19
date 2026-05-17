@@ -2,3 +2,12 @@
 
 
 Install environment: `uv sync`
+
+Datasets should be placed like: `./data/Yahoo/...`, `./data/AIOPS/...`
+
+Run benchmark:
+```bash
+uv run run_benchmark.py \
+  --datasets "NAB, TODS, UCR, WSD, Yahoo" \
+  --models models.json5
+```

@@ -114,6 +114,7 @@ class STLDetector(BaseDetector):
             std_dev = self.calculate_seasonal_std(residual, day_period)
         else:
             std_dev = self.calculate_std(residual)
+        # std_dev = self.update_std_with_holidays()
         anomaly_scores = np.abs(residual) / std_dev
 
         expected = trend + seasonal
