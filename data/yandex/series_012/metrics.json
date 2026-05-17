@@ -1,0 +1,12 @@
+{
+  "precision": 0.034383954154727794,
+  "recall": 0.05128205128205128,
+  "f1": 0.0411663807890223,
+  "f1_best": 0.0896637595457492,
+  "auc_pr": 0.06612570920246541,
+  "best_threshold": 0.502999922173821,
+  "csv_path": "data/datasets/dostavka/data/\u041b \u042d\u0442\u0443\u0430\u043b\u044c.csv",
+  "processing_time": 0.328516,
+  "time_length": 20946600.0,
+  "n_observations": 7200
+}

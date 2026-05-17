@@ -1,0 +1,12 @@
+{
+  "precision": 0.0,
+  "recall": 0.0,
+  "f1": 0.0,
+  "f1_best": 0.015151513880854103,
+  "auc_pr": 0.0028246764002273243,
+  "best_threshold": 3.2723020101322584,
+  "csv_path": "data/datasets/dostavka/data/\u042f\u043d\u0434\u0435\u043a\u0441 \u041c\u0430\u0440\u043a\u0435\u0442 \u042d\u043a\u0441\u043f\u0440\u0435\u0441\u0441 | Market Express.csv",
+  "processing_time": 0.373451,
+  "time_length": 21146400.0,
+  "n_observations": 11559
+}

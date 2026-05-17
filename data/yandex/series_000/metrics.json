@@ -1,0 +1,12 @@
+{
+  "precision": 0.10869565217391304,
+  "recall": 0.09803921568627451,
+  "f1": 0.10309278350515465,
+  "f1_best": 0.13636363162190102,
+  "auc_pr": 0.07257155526181336,
+  "best_threshold": 3.4885669195563986,
+  "csv_path": "data/datasets/dostavka/data/KFC.csv",
+  "processing_time": 0.213617,
+  "time_length": 21151800.0,
+  "n_observations": 11640
+}

@@ -1,0 +1,12 @@
+{
+  "precision": 0.0,
+  "recall": 0.0,
+  "f1": 0.0,
+  "f1_best": 0.0170940144904672,
+  "auc_pr": 0.005735879207466209,
+  "best_threshold": 3.4456905222000405,
+  "csv_path": "data/datasets/dostavka/data/\u0414\u0435\u0442\u0441\u043a\u0438\u0439 \u041c\u0438\u0440.csv",
+  "processing_time": 0.401066,
+  "time_length": 21070800.0,
+  "n_observations": 10916
+}
