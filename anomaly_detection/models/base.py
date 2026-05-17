@@ -1,4 +1,7 @@
 from abc import ABC, abstractmethod
+
+import holidays
+import pandas as pd
 from pydantic import BaseModel, field_validator
 from typing import Dict, Any, Optional
 
@@ -47,7 +50,7 @@ class BaseDetector(ABC):
     models must implement.
     """
 
-    def __init__(self, **kwargs):
+    def __init__(self, apply_holidays=False, **kwargs):
         """
         Initialize the detector with model-specific parameters.
 
@@ -58,6 +61,11 @@ class BaseDetector(ABC):
         if "std_type" not in self.params:
             self.params["std_type"] = "default"
         self.validate_params(self.params)
+
+        if (apply_holidays):
+            self.holiday_param = np.float64(2.0)
+            self._holiday_lr = self.params.get("holiday_lr", 0.01)
+            self._holiday_decay = 0.99
 
     @abstractmethod
     def get_default_params(self) -> Dict[str, Any]:
@@ -119,7 +127,7 @@ class BaseDetector(ABC):
         else:
             return self._detect_univariate(time_series)
 
-    def calculate_std(self, residual: np.array, apply_holidays=False) -> float:
+    def calculate_std(self, residual: np.array, apply_holidays=False, dates=None) -> float:
         def _calculate_std(self, residual: np.array) -> float:
             """
             Calculate the standard deviation of the residuals.
@@ -174,7 +182,57 @@ class BaseDetector(ABC):
 
         ans = _calculate_std(self, residual)
         if (apply_holidays):
-            holidays = holidays.
+            hols = holidays.RU()
+            if (len(dates) != residual.shape[0]):
+                raise ValueError(f"Shapes of date array and residual array are not equal: {len(dates)} != {residual.shape[0]}")
+
+            for i in range(len(dates)):
+                if (dates[i] in hols):
+                    ans[i] *= self.holiday_param
+
+        return ans
+
+    def calculate_std_backward(self, dates: list, predicted : np.array, ground_truth: np.array) -> np.array:
+        """
+        Обучает holiday_param: сдвигает вверх если пропускаем аномалии в праздники,
+        сдвигает вниз если ложные тревоги в праздники.
+
+        Args:
+            dates: даты
+            predicted: предсказанные anomaly scores
+            ground_truth: истинные метки (0/1)
+        """
+        hols = holidays.RU()
+
+
+        lr = self._holiday_lr
+        self._holiday_lr *= self._holiday_decay
+
+        # Только праздничные точки
+        for i in range(len(dates)):
+            date_only = dates[i].date() if hasattr(dates[i], 'date') else pd.Timestamp(dates[i]).date()
+
+            if date_only not in hols:
+                continue
+
+            gt = ground_truth[i]
+            pred_score = predicted[i]
+            threshold = self.params.get("threshold", 3.0)
+
+            if gt == 1 and pred_score < threshold:
+                # Пропустили аномалию → поднимаем β (делаем std шире? нет, уже)
+                # Аномалия не детектится потому что порог слишком высокий
+                # Надо уменьшить holiday_param, чтобы std стал меньше, порог ниже
+                self.holiday_param -= lr
+
+            elif gt == 0 and pred_score > threshold:
+                # Ложная тревога → увеличиваем holiday_param, чтобы std стал больше
+                self.holiday_param += lr
+
+        # Клиппинг
+        self.holiday_param = np.clip(self.holiday_param, 0.2, 5.0)
+        return self.holiday_param
+
 
     def calculate_seasonal_std(
         self, residual: np.array, period: int, clip: Optional[tuple[float, float]] = None

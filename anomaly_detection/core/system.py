@@ -13,7 +13,7 @@ from ..models import (
 )
 
 DEFAULT_CONFIGURATION = {
-    "detection_model_params": {"model_name": "Autoregressive", "order": 20, "threshold": 3.0, "stable": False},
+    "detection_model_params": {"model_name": "STLDetector", "order": 20, "threshold": 3.0, "stable": False},
 }
 
 
@@ -66,6 +66,11 @@ class AnomalyDetectionSystem:
         self.transforms_params = transforms_params.copy() if transforms_params is not None else {}
         self.detection_model_params = detection_model_params.copy() if detection_model_params is not None else {}
 
+        if ("apply_holidays" in detection_model_params):
+            self.apply_holidays = detection_model_params["apply_holidays"]
+        else:
+            self.apply_holidays = False
+
         self.original_model_params = {
             "detection_model_params": detection_model_params,
             "transforms_params": transforms_params,
@@ -91,7 +96,8 @@ class AnomalyDetectionSystem:
                 tuple[list[datetime], list[float]],
                 tuple[list[datetime], list[list[float]]],
                 list[tuple[list[datetime], list[float]]]
-            ]
+            ],
+            dates=None
     ) -> DetectionResult:
         """
         Run the complete anomaly detection pipeline.
@@ -110,7 +116,7 @@ class AnomalyDetectionSystem:
 
         # Apply detection strategy
         detection_result = AnomalyDetectionSystem._detect_anomalies(
-            processed_ts, self.model_name, self.detection_model_params
+            processed_ts, self.model_name, self.detection_model_params, dates=dates
         )
 
         # Validate anomaly_scores length matches processed time series length
@@ -213,6 +219,7 @@ class AnomalyDetectionSystem:
         time_series: TimeSeriesWrapper,
         model_name: str,
         detection_model_params: Dict,
+        dates=None
     ) -> ModelResult:
         """
         Run anomaly detection with specified model and strategy.
@@ -228,3 +235,38 @@ class AnomalyDetectionSystem:
         detector = AnomalyDetectionSystem.AVAILABLE_MODELS[model_name](**detection_model_params)
 
         return detector(time_series)
+
+    def calculate_std_backward(
+            self,
+            time_series: Union[
+                TimeSeriesWrapper,
+                pd.DataFrame,
+                tuple[list[datetime], list[float]],
+                tuple[list[datetime], list[list[float]]],
+                list[tuple[list[datetime], list[float]]]
+            ],
+            dates: list,
+            predicted: np.array,
+            ground_truth: np.array
+    ) -> np.array:
+        """
+        Run the complete anomaly detection pipeline.
+
+        Returns:
+            AnomalyDetectionSystemResult: Anomaly detection result
+        """
+        if not isinstance(time_series, TimeSeriesWrapper):
+            time_series = TimeSeriesWrapper(time_series)
+
+        # Apply transformations
+        if self.transforms_params:
+            processed_ts = AnomalyDetectionSystem._apply_transforms(time_series, **self.transforms_params)
+        else:
+            processed_ts = time_series
+
+
+        detector = AnomalyDetectionSystem.AVAILABLE_MODELS[self.model_name](self.detection_model_params)
+
+        self.detection_model_params["holiday_param"] = detector.calculate_std_backward(dates, predicted, ground_truth)
+
+        return self.detection_model_params["holiday_param"]

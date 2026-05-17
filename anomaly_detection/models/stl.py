@@ -19,9 +19,10 @@ class STLDetector(BaseDetector):
             "threshold": 3.0,
             "smoothing": 1,
             "seasonality": "auto",
-            "seasonal_window": 3,  # hardcoded
-            "dst_weight": 1.0,  # beta parameter for DST compensation
+            "seasonal_window": 3,
+            "dst_weight": 1.0,
             "std_type": "mad",
+            "apply_holidays": False,
         }
 
     def validate_params(self, params: Dict[str, Any]) -> None:
