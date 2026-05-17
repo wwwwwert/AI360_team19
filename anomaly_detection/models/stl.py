@@ -95,7 +95,7 @@ class STLDetector(BaseDetector):
         ).total_seconds()
         day_period = int(timedelta(hours=24).total_seconds() / time_delta)
 
-        apply_hol = self.params.get("apply_holidays", False)
+        apply_hol = self._apply_holidays
         ts_index = time_series.time_series_pd.index
 
         if day_period * 7 <= len(residual):

@@ -29,7 +29,7 @@ def calculate_metrics(true_labels, predictions):
 
 
 # Загружаем один датасет
-csv_path = Path("data/series_000/data.csv")
+csv_path = Path("data/yandex/series_000/data.csv")
 time_series, true_labels = load_csv_dataset(csv_path)
 dates = time_series.index
 
@@ -42,7 +42,7 @@ CONFIG["detection_model_params"]["apply_holidays"] = True
 
 system = AnomalyDetectionSystem(**CONFIG)
 
-N_EPOCHS = 1000
+N_EPOCHS = 100
 
 print(f"\nОбучение на {N_EPOCHS} эпохах без сброса параметров...")
 print("=" * 70)
@@ -63,7 +63,7 @@ for epoch in range(N_EPOCHS):
         time_series=time_series,
         dates=dates,
         ground_truth=true_labels,
-        predicted=predictions
+        predicted=anomaly_scores
     )
 
     # Метрики
@@ -78,4 +78,4 @@ for epoch in range(N_EPOCHS):
 
 print("=" * 70)
 print(f"\nЛучший F1: {best_f1:.4f} при β = {best_beta:.4f}")
-print(f"Финальный β после {N_EPOCHS} эпох: {system.detection_model_params['holiday_param']:.4f}")
+print(f"Финальный β после {N_EPOCHS} эпох: {system.holiday_param:.4f}")

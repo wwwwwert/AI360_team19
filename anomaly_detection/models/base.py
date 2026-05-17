@@ -1,6 +1,7 @@
 from abc import ABC, abstractmethod
 
 import holidays
+import pandas as pd
 from pydantic import BaseModel, field_validator
 from typing import Dict, Any, Optional
 
@@ -41,9 +42,10 @@ class BaseDetector(ABC):
             self.params["std_type"] = "default"
         self.validate_params(self.params)
 
+        self._apply_holidays = apply_holidays
         if apply_holidays:
             self.holiday_param = holiday_param if holiday_param is not None else np.float64(2.0)
-            self._holiday_lr = self.params.get("holiday_lr", 0.1)
+            self._holiday_lr = self.params.get("holiday_lr", 0.068)
             self._holiday_decay = 0.999
 
     @abstractmethod
@@ -132,19 +134,26 @@ class BaseDetector(ABC):
         lr = self._holiday_lr
         self._holiday_lr *= self._holiday_decay
 
+        threshold = self.params.get("threshold", 3.0)
+        missed = 0      # gt=1, pred<threshold → нужно сузить std → уменьшить param
+        false_alarm = 0 # gt=0, pred>threshold → нужно расширить std → увеличить param
+        n_hol = 0
+
         for i in range(len(dates)):
             date_only = dates[i].date() if hasattr(dates[i], 'date') else pd.Timestamp(dates[i]).date()
             if date_only not in hols:
                 continue
-
+            n_hol += 1
             gt = ground_truth[i]
             pred_score = predicted[i]
-            threshold = self.params.get("threshold", 3.0)
-
             if gt == 1 and pred_score < threshold:
-                self.holiday_param -= lr
+                missed += 1
             elif gt == 0 and pred_score > threshold:
-                self.holiday_param += lr
+                false_alarm += 1
+
+        if n_hol > 0:
+            net = (false_alarm - missed) / n_hol
+            self.holiday_param += lr * net
 
         self.holiday_param = np.clip(self.holiday_param, 0.2, 5.0)
         return float(self.holiday_param)
@@ -180,8 +189,7 @@ class BaseDetector(ABC):
                     period_stds.append(
                         self.calculate_std(
                             np.array(period_phase_values),
-                            apply_holidays=apply_holidays,
-                            dates=dates,
+                            apply_holidays=False,
                             return_array=False
                         )
                     )
