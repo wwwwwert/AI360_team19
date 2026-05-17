@@ -12,6 +12,7 @@ dependencies = [
     "salesforce-merlion>=2.0.2",
     "seaborn>=0.13.2",
     "statsmodels>=0.14.6",
+    "stumpy==1.14.1",
     "termcolor>=3.3.0",
 ]
 
