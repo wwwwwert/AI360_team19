@@ -116,6 +116,10 @@ class STLDetector(BaseDetector):
             std_dev = self.calculate_std(residual)
         anomaly_scores = np.abs(residual) / std_dev
 
+
+        #####
+
+
         expected = trend + seasonal
         expected_bounds = np.column_stack(
             (

@@ -13,7 +13,7 @@ from ..models import (
 )
 
 DEFAULT_CONFIGURATION = {
-    "detection_model_params": {"model_name": "Autoregressive", "order": 20, "threshold": 3.0, "stable": False},
+    "detection_model_params": {"model_name": "STLDetector", "order": 20, "threshold": 3.0, "stable": False},
 }
 
 
