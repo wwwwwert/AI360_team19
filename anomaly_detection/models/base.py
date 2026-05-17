@@ -1,7 +1,6 @@
 from abc import ABC, abstractmethod
 
 import holidays
-import pandas as pd
 from pydantic import BaseModel, field_validator
 from typing import Dict, Any, Optional
 
@@ -12,13 +11,6 @@ from ..core import TimeSeriesWrapper
 
 
 class ModelResult(BaseModel):
-    """
-    Class for storing the result of an anomaly detection.
-
-    This class is used to store the result of an anomaly detection,
-    including the anomaly scores.
-    """
-
     anomaly_scores: Any
     is_anomaly: Any
     expected_value: Any = None
@@ -43,134 +35,61 @@ class ModelResult(BaseModel):
 
 
 class BaseDetector(ABC):
-    """
-    Base class for anomaly detection models.
-
-    This abstract class defines the interface that all anomaly detection
-    models must implement.
-    """
-
-    def __init__(self, apply_holidays=False, **kwargs):
-        """
-        Initialize the detector with model-specific parameters.
-
-        Args:
-            **kwargs: Model-specific parameters
-        """
+    def __init__(self, apply_holidays=False, holiday_param=None, **kwargs):
         self.params = {**self.get_default_params(), **kwargs}
         if "std_type" not in self.params:
             self.params["std_type"] = "default"
         self.validate_params(self.params)
 
-        if (apply_holidays):
-            self.holiday_param = np.float64(2.0)
-            self._holiday_lr = self.params.get("holiday_lr", 0.01)
-            self._holiday_decay = 0.99
+        if apply_holidays:
+            self.holiday_param = holiday_param if holiday_param is not None else np.float64(2.0)
+            self._holiday_lr = self.params.get("holiday_lr", 0.1)
+            self._holiday_decay = 0.999
 
     @abstractmethod
     def get_default_params(self) -> Dict[str, Any]:
-        """
-        Get the default parameters for the model.
-        Returns:
-            Dictionary of default parameter values
-        """
         pass
 
     def validate_params(self, params: Dict[str, Any]) -> None:
-        """
-        Validate the provided parameters.
-
-        Args:
-            params: Dictionary of parameters to validate
-
-        Raises:
-            ValueError: If parameters are invalid
-        """
         pass
 
     def _detect_multivariate(self, time_series: TimeSeriesWrapper) -> ModelResult:
-        """
-        Detect anomalies in multivariate time series.
-
-        Args:
-            time_series: Multivariate time series data
-
-        Returns:
-            ModelResult object containing detected anomalies and anomaly scores
-
-        Raises:
-            NotImplementedError: If the detector does not support multivariate time series
-        """
         raise NotImplementedError(
             f"{self.__class__.__name__} does not support multivariate time series. "
             f"Received {time_series.n_series} series."
         )
 
     def _detect_univariate(self, time_series: TimeSeriesWrapper) -> ModelResult:
-        """
-        Detect anomalies in univariate time series.
-
-        Args:
-            time_series: Univariate time series data
-
-        Returns:
-            ModelResult object containing detected anomalies and anomaly scores
-
-        Raises:
-            NotImplementedError: If the detector does not implement univariate detection
-        """
         raise NotImplementedError(f"{self.__class__.__name__} does not implement univariate detection.")
 
-    def __call__(self, time_series: TimeSeriesWrapper) -> ModelResult:
+    def __call__(self, time_series: TimeSeriesWrapper, dates=None) -> ModelResult:
         if time_series.is_multivariate:
             return self._detect_multivariate(time_series)
         else:
-            return self._detect_univariate(time_series)
+            return self._detect_univariate(time_series, dates=dates)
 
-    def calculate_std(self, residual: np.array, apply_holidays=False, dates=None) -> float:
+    def calculate_std(self, residual: np.array, apply_holidays=False, dates=None, return_array=True) -> np.ndarray:
         def _calculate_std(self, residual: np.array) -> float:
-            """
-            Calculate the standard deviation of the residuals.
-
-            Args:
-                residual: Array of residuals
-
-            Returns:
-                Standard deviation of residuals
-            """
             if self.params["std_type"] == "default":
                 return np.sqrt(np.mean(residual**2))
             elif self.params["std_type"] == "default_robust":
-                # Robust RMS using trimmed sample
                 r = np.asarray(residual)
                 abs_r = np.abs(r)
-
                 if abs_r.size < 20:
                     return np.std(r)
-
                 q_lo, q_hi = 0.75, 0.98
                 a_emp, b_emp = np.quantile(abs_r, [q_lo, q_hi])
-
                 mask = (abs_r >= a_emp) & (abs_r <= b_emp)
                 trimmed = r[mask]
-
                 if trimmed.size < 10:
                     return np.std(r)
-
-                # raw (biased) estimate on truncated sample
                 sigma_raw2 = np.mean(trimmed**2)
-
-                # theoretical correction factor
                 a = stats.norm.ppf(q_lo)
                 b = stats.norm.ppf(q_hi)
-
                 phi = stats.norm.pdf
                 Phi = stats.norm.cdf
-
                 C = ((-b * phi(b) + Phi(b)) - (-a * phi(a) + Phi(a))) / (Phi(b) - Phi(a))
-
-                sigma = np.sqrt(sigma_raw2 / C)
-                return sigma
+                return np.sqrt(sigma_raw2 / C)
             elif self.params["std_type"] == "mad":
                 return np.median(np.abs(residual)) / stats.norm.ppf(0.75)
             elif self.params["std_type"] == "iqr":
@@ -181,37 +100,40 @@ class BaseDetector(ABC):
                 raise ValueError(f"Unknown std_type: {self.params['std_type']}")
 
         ans = _calculate_std(self, residual)
-        if (apply_holidays):
+
+        if apply_holidays and hasattr(self, 'holiday_param') and dates is not None:
             hols = holidays.RU()
-            if (len(dates) != residual.shape[0]):
-                raise ValueError(f"Shapes of date array and residual array are not equal: {len(dates)} != {residual.shape[0]}")
+            if len(dates) != len(residual):
+                raise ValueError(f"Shapes mismatch: {len(dates)} != {len(residual)}")
+
+            if np.isscalar(ans):
+                std_array = np.full(len(residual), ans)
+            else:
+                std_array = ans.copy()
 
             for i in range(len(dates)):
-                if (dates[i] in hols):
-                    ans[i] *= self.holiday_param
+                if dates[i] in hols:
+                    std_array[i] *= self.holiday_param
 
+            if return_array:
+                return std_array
+            else:
+                return float(np.mean(std_array))
+
+        if return_array and np.isscalar(ans):
+            return np.full(len(residual), ans)
         return ans
 
-    def calculate_std_backward(self, dates: list, predicted : np.array, ground_truth: np.array) -> np.array:
-        """
-        Обучает holiday_param: сдвигает вверх если пропускаем аномалии в праздники,
-        сдвигает вниз если ложные тревоги в праздники.
+    def calculate_std_backward(self, dates: list, predicted: np.array, ground_truth: np.array) -> float:
+        if not hasattr(self, 'holiday_param'):
+            return np.float64(2.0)
 
-        Args:
-            dates: даты
-            predicted: предсказанные anomaly scores
-            ground_truth: истинные метки (0/1)
-        """
         hols = holidays.RU()
-
-
         lr = self._holiday_lr
         self._holiday_lr *= self._holiday_decay
 
-        # Только праздничные точки
         for i in range(len(dates)):
             date_only = dates[i].date() if hasattr(dates[i], 'date') else pd.Timestamp(dates[i]).date()
-
             if date_only not in hols:
                 continue
 
@@ -220,43 +142,19 @@ class BaseDetector(ABC):
             threshold = self.params.get("threshold", 3.0)
 
             if gt == 1 and pred_score < threshold:
-                # Пропустили аномалию → поднимаем β (делаем std шире? нет, уже)
-                # Аномалия не детектится потому что порог слишком высокий
-                # Надо уменьшить holiday_param, чтобы std стал меньше, порог ниже
                 self.holiday_param -= lr
-
             elif gt == 0 and pred_score > threshold:
-                # Ложная тревога → увеличиваем holiday_param, чтобы std стал больше
                 self.holiday_param += lr
 
-        # Клиппинг
         self.holiday_param = np.clip(self.holiday_param, 0.2, 5.0)
-        return self.holiday_param
-
+        return float(self.holiday_param)
 
     def calculate_seasonal_std(
-        self, residual: np.array, period: int, clip: Optional[tuple[float, float]] = None
+        self, residual: np.array, period: int,
+        clip: Optional[tuple[float, float]] = None,
+        apply_holidays: bool = False,
+        dates=None
     ) -> np.ndarray:
-        """
-        Calculate robust seasonal standard deviation resistant to outliers.
-
-        For each phase in the seasonal cycle, estimates std using neighboring phases
-        within a temporal window. Uses aggressive outlier filtering at two levels:
-        1. Per-period filtering: exclude periods with anomalously high std
-        2. Per-value filtering: trim extreme values using percentile-based approach
-
-        This makes the estimate robust to:
-        - Broken periods (all or most values anomalous)
-        - Point outliers at the same phase across different periods
-
-        Args:
-            residual: Array of residuals
-            period: Period of the seasonal component
-            clip: (min, max) multipliers relative to overall std
-
-        Returns:
-            Array of seasonal std values (one per position), shape (len(residual),)
-        """
         if clip is None:
             clip = (0.5, 3.0)
 
@@ -264,10 +162,9 @@ class BaseDetector(ABC):
         num_of_periods = len(residual) // period + 1
         window_size = max((statistical_evidence_bound // num_of_periods) // 2, 1) + 1
         values = []
-        overall_std = self.calculate_std(residual)
+        overall_std = self.calculate_std(residual, apply_holidays=apply_holidays, dates=dates, return_array=False)
 
         for i in range(period):
-            # Collect residuals at phase i across all periods and phase neighbors
             phase_values_by_period = []
             for period_idx in range(num_of_periods):
                 period_phase_values = []
@@ -277,22 +174,22 @@ class BaseDetector(ABC):
                         period_phase_values.append(residual[idx])
                 phase_values_by_period.append(period_phase_values)
 
-            # Step 1: Calculate std for each period independently
-            # This approach uses per-period medians, making it robust to broken periods
             period_stds = []
             for period_phase_values in phase_values_by_period:
                 if len(period_phase_values) > 0:
-                    # Calculate std for this period's phase values
-                    period_stds.append(self.calculate_std(np.array(period_phase_values)))
+                    period_stds.append(
+                        self.calculate_std(
+                            np.array(period_phase_values),
+                            apply_holidays=apply_holidays,
+                            dates=dates,
+                            return_array=False
+                        )
+                    )
                 else:
                     period_stds.append(0)
 
-            # Step 2: Use median std across periods (robust to broken periods)
-            # The median is immune to entire periods being anomalous
             if len(period_stds) > 0:
                 period_stds_arr = np.array(period_stds)
-                # Filter out clearly broken periods (std > 80th percentile)
-                # while keeping most normal periods
                 percentile_80 = (
                     np.percentile(period_stds_arr[period_stds_arr > 0], 80)
                     if np.sum(period_stds_arr > 0) > 2
@@ -301,7 +198,6 @@ class BaseDetector(ABC):
                 good_stds = period_stds_arr[period_stds_arr <= percentile_80]
 
                 if len(good_stds) > 0:
-                    # Use median of good periods' stds (very robust)
                     phase_std = np.median(good_stds)
                 else:
                     phase_std = overall_std
@@ -310,8 +206,6 @@ class BaseDetector(ABC):
 
             values.append(max(phase_std, 1e-12))
 
-        # Replicate seasonal std values to match time series length
         values_arr = np.array(values)
-        values_tiled = np.tile(values_arr, num_of_periods)[: len(residual)]
-        # Clip to reasonable bounds relative to overall std
+        values_tiled = np.tile(values_arr, num_of_periods)[:len(residual)]
         return np.clip(values_tiled, overall_std * clip[0], overall_std * clip[1])

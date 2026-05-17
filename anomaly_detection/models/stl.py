@@ -45,7 +45,6 @@ class STLDetector(BaseDetector):
         n_periods = len(series) // period
         seasonal = np.zeros(period)
 
-        # not vectorized version, todo fix
         for i in range(period):
             values = []
             for p in range(n_periods):
@@ -62,17 +61,10 @@ class STLDetector(BaseDetector):
         result = np.tile(seasonal, (len(series) // period) + 1)[: len(series)]
         return result
 
-    def _compute_mad(self, residual: np.ndarray) -> float:
-        """Compute Median Absolute Deviation"""
-        median = np.median(residual)
-        mad = np.median(np.abs(residual - median))
-        return mad / stats.norm.ppf(0.75) if mad > 0 else 1e-8
-
-    def _detect_univariate(self, time_series: TimeSeriesWrapper) -> ModelResult:
+    def _detect_univariate(self, time_series: TimeSeriesWrapper, dates=None) -> ModelResult:
         values = time_series.time_series_pd.rolling(window=self.params["smoothing"], min_periods=1).mean()
         series = np.asarray(values)[:, 0]
 
-        # Handle empty or too short series
         if len(series) < 3:
             return ModelResult(
                 anomaly_scores=np.zeros(len(series)),
@@ -93,16 +85,8 @@ class STLDetector(BaseDetector):
         period = max(2, period)
 
         trend = series - detrend(series, 1)
-
         detrended = series - trend
-
         seasonal = self._extract_seasonal_component(detrended, period, self.params["seasonal_window"])
-
-        # unused for a while, todo fix
-        # if self.params["dst_weight"] < 1.0:
-        #     seasonal_trend_window = min(30, len(detrended) // 4)
-        #     seasonal_trend = self._moving_median(detrended, seasonal_trend_window)
-        #     seasonal = self.params["dst_weight"] * seasonal + (1 - self.params["dst_weight"]) * seasonal_trend
 
         residual = series - trend - seasonal
 
@@ -111,10 +95,22 @@ class STLDetector(BaseDetector):
         ).total_seconds()
         day_period = int(timedelta(hours=24).total_seconds() / time_delta)
 
+        apply_hol = self.params.get("apply_holidays", False)
+        ts_index = time_series.time_series_pd.index
+
         if day_period * 7 <= len(residual):
-            std_dev = self.calculate_seasonal_std(residual, day_period)
+            std_dev = self.calculate_seasonal_std(
+                residual, day_period,
+                apply_holidays=apply_hol,
+                dates=ts_index
+            )
         else:
-            std_dev = self.calculate_std(residual)
+            std_dev = self.calculate_std(
+                residual,
+                apply_holidays=apply_hol,
+                dates=ts_index
+            )
+
         anomaly_scores = np.abs(residual) / std_dev
 
         expected = trend + seasonal

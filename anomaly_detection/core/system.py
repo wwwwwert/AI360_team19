@@ -40,6 +40,7 @@ class AnomalyDetectionSystem:
     def __init__(
         self,
         transforms_params: Optional[Dict] = None,
+        holiday_param=None,
         detection_model_params: Dict = DEFAULT_CONFIGURATION["detection_model_params"],
     ):
         """
@@ -68,6 +69,8 @@ class AnomalyDetectionSystem:
 
         if ("apply_holidays" in detection_model_params):
             self.apply_holidays = detection_model_params["apply_holidays"]
+            if (self.apply_holidays):
+                self.holiday_param = np.float64(2.0) # default
         else:
             self.apply_holidays = False
 
@@ -116,7 +119,7 @@ class AnomalyDetectionSystem:
 
         # Apply detection strategy
         detection_result = AnomalyDetectionSystem._detect_anomalies(
-            processed_ts, self.model_name, self.detection_model_params, dates=dates
+            processed_ts, self.model_name, self.detection_model_params, dates=dates, holiday_param=getattr(self, "holiday_param", None)
         )
 
         # Validate anomaly_scores length matches processed time series length
@@ -219,7 +222,7 @@ class AnomalyDetectionSystem:
         time_series: TimeSeriesWrapper,
         model_name: str,
         detection_model_params: Dict,
-        dates=None
+        holiday_param=None
     ) -> ModelResult:
         """
         Run anomaly detection with specified model and strategy.
@@ -232,7 +235,8 @@ class AnomalyDetectionSystem:
         Returns:
             Model results
         """
-        detector = AnomalyDetectionSystem.AVAILABLE_MODELS[model_name](**detection_model_params)
+        print(detection_model_params.keys())
+        detector = AnomalyDetectionSystem.AVAILABLE_MODELS[model_name](**detection_model_params, holiday_param=holiday_param)
 
         return detector(time_series)
 
@@ -265,7 +269,7 @@ class AnomalyDetectionSystem:
             processed_ts = time_series
 
 
-        detector = AnomalyDetectionSystem.AVAILABLE_MODELS[self.model_name](self.detection_model_params)
+        detector = AnomalyDetectionSystem.AVAILABLE_MODELS[self.model_name](self.detection_model_params, holiday_param=getattr(self, "holiday_param", None))
 
         self.detection_model_params["holiday_param"] = detector.calculate_std_backward(dates, predicted, ground_truth)
 
