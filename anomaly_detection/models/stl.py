@@ -131,3 +131,47 @@ class STLDetector(BaseDetector):
             expected_value=expected,
             expected_bounds=expected_bounds,
         )
+
+    def z_scores(self, time_series: TimeSeriesWrapper) -> np.array:
+        values = time_series.time_series_pd.rolling(window=self.params["smoothing"], min_periods=1).mean()
+        series = np.asarray(values)[:, 0]
+
+
+        if self.params["seasonality"] == "auto":
+            period = detect_seasonality_with_acf(series)
+        elif self.params["seasonality"] in ("hour", "day", "week"):
+            hours_map = {"hour": 1, "day": 24, "week": 7 * 24}
+            time_delta = pd.to_timedelta(
+                time_series.time_series_pd.index[1] - time_series.time_series_pd.index[0]
+            ).total_seconds()
+            period = int(timedelta(hours=hours_map[self.params["seasonality"]]).total_seconds() / time_delta)
+
+        period = max(2, period)
+
+        trend = series - detrend(series, 1)
+
+        detrended = series - trend
+
+        seasonal = self._extract_seasonal_component(detrended, period, self.params["seasonal_window"])
+
+        # unused for a while, todo fix
+        # if self.params["dst_weight"] < 1.0:
+        #     seasonal_trend_window = min(30, len(detrended) // 4)
+        #     seasonal_trend = self._moving_median(detrended, seasonal_trend_window)
+        #     seasonal = self.params["dst_weight"] * seasonal + (1 - self.params["dst_weight"]) * seasonal_trend
+
+        residual = series - trend - seasonal
+
+        time_delta = pd.to_timedelta(
+            time_series.time_series_pd.index[1] - time_series.time_series_pd.index[0]
+        ).total_seconds()
+        day_period = int(timedelta(hours=24).total_seconds() / time_delta)
+
+        if day_period * 7 <= len(residual):
+            std_dev = self.calculate_seasonal_std(residual, day_period)
+        else:
+            std_dev = self.calculate_std(residual)
+        # std_dev = self.update_std_with_holidays()
+        anomaly_scores = np.abs(residual) / std_dev
+
+        return anomaly_scores
