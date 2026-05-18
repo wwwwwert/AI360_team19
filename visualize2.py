@@ -49,7 +49,7 @@ def main():
         redraw_ax(ax2, dates_on, values_on, result_on, f"With holidays (param={val:.2f})", true_anomaly_mask)
         fig.canvas.draw_idle()
 
-    add_holiday_slider(fig, on_slider_change, init=HOLIDAY_PARAM_INIT)
+    fig._holiday_slider = add_holiday_slider(fig, on_slider_change, init=HOLIDAY_PARAM_INIT)
 
     plt.tight_layout(rect=[0, 0.1, 1, 1])
     plt.show()
