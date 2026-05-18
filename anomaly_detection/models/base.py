@@ -171,7 +171,7 @@ class BaseDetector(ABC):
         num_of_periods = len(residual) // period + 1
         window_size = max((statistical_evidence_bound // num_of_periods) // 2, 1) + 1
         values = []
-        overall_std = self.calculate_std(residual, apply_holidays=apply_holidays, dates=dates, return_array=False)
+        overall_std = self.calculate_std(residual, apply_holidays=False, return_array=False)
 
         for i in range(period):
             phase_values_by_period = []
@@ -216,4 +216,14 @@ class BaseDetector(ABC):
 
         values_arr = np.array(values)
         values_tiled = np.tile(values_arr, num_of_periods)[:len(residual)]
-        return np.clip(values_tiled, overall_std * clip[0], overall_std * clip[1])
+        clipped = np.clip(values_tiled, overall_std * clip[0], overall_std * clip[1])
+
+        if apply_holidays and hasattr(self, 'holiday_param') and dates is not None:
+            if len(dates) != len(clipped):
+                raise ValueError(f"Shapes mismatch: {len(dates)} != {len(clipped)}")
+            hols = holidays.RU()
+            for i in range(len(dates)):
+                if dates[i] in hols:
+                    clipped[i] *= self.holiday_param
+
+        return clipped

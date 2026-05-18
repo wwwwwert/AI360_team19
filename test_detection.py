@@ -73,8 +73,8 @@ for epoch in range(N_EPOCHS):
         best_f1 = f1
         best_beta = holiday_param
 
-    if epoch % 100 == 0 or epoch < 10:
-        print(f"{epoch:<8} {precision:<10.4f} {recall:<10.4f} {f1:<10.4f} {holiday_param:<10.4f}")
+    if epoch % 10 == 0 or epoch < 10:
+        print(f"{epoch} {precision:<10.4f} {recall:<10.4f} {f1:<10.4f} {holiday_param:<10.4f}")
 
 print("=" * 70)
 print(f"\nЛучший F1: {best_f1:.4f} при β = {best_beta:.4f}")
