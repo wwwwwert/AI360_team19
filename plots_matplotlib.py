@@ -42,11 +42,19 @@ def update_layout(ax: Axes, fig: Figure):
 
 
 def plot_time_series(time_series: pd.DataFrame, title: str = "Time Series"):
-    """Create a basic time series plot."""
+    """Create a basic time series plot supporting multidimensional data."""
     fig, ax = plt.subplots(figsize=(20, 8))
 
-    # Add the main time series line
-    add_line(ax, time_series.index, time_series["value_0"], title, "blue")
+    # Find all value columns (value_0, value_1, value_2, etc.)
+    value_cols = [col for col in time_series.columns if col.startswith('value_')]
+    
+    if not value_cols:
+        raise ValueError("No value columns found. Expected columns starting with 'value_'")
+    
+    # Plot all value columns without legend labels
+    for i, col in enumerate(value_cols):
+        # Use matplotlib's default color cycle, don't add to legend
+        ax.plot(time_series.index, time_series[col], linewidth=1.5)
 
     # Update layout
     update_layout(ax, fig)
@@ -103,45 +111,66 @@ def add_anomalies(
     ax: Axes,
     time_series: pd.DataFrame,
     is_anomaly: np.ndarray,
-    expected_values: np.array,
-    expected_bounds: np.array,
+    expected_values: np.array = None,
+    expected_bounds: np.array = None,
 ):
-    """Add anomaly points with confidence intervals."""
-    time_series = time_series.copy()
-    time_series["expected"] = expected_values
-    time_series["upper"] = expected_bounds[:, 0]
-    time_series["lower"] = expected_bounds[:, 1]
-
-    # Filter anomaly points
-    anomaly_points = time_series[is_anomaly == 1]
-
-    # Add anomaly points
-    ax = add_points(
-        ax, anomaly_points.index, anomaly_points["value_0"], "Anomalies", "red"
-    )
-
-    # Add confidence interval
-    ax = add_confidence_interval(ax, time_series)
+    """Add anomaly visualization. For multidimensional data, draws red vertical lines at anomaly timestamps."""
+    # Find all value columns to determine if this is multidimensional data
+    value_cols = [col for col in time_series.columns if col.startswith('value_')]
+    
+    # Filter anomaly timestamps
+    anomaly_mask = is_anomaly == 1
+    anomaly_timestamps = time_series.index[anomaly_mask]
+    
+    if len(value_cols) > 1:
+        # Multidimensional case: draw red vertical lines
+        for timestamp in anomaly_timestamps:
+            ax.axvline(x=timestamp, color='red', alpha=0.7, linewidth=1.5, linestyle='--', label='Anomaly' if timestamp == anomaly_timestamps[0] else "")
+    else:
+        # Single-dimensional case: use points (backward compatibility)
+        anomaly_points = time_series[anomaly_mask]
+        if not anomaly_points.empty:
+            ax = add_points(
+                ax, anomaly_points.index, anomaly_points["value_0"], "Anomalies", "red"
+            )
+    
+    # Add confidence interval if provided
+    if expected_values is not None and expected_bounds is not None:
+        time_series_copy = time_series.copy()
+        time_series_copy["expected"] = expected_values
+        time_series_copy["upper"] = expected_bounds[:, 0]
+        time_series_copy["lower"] = expected_bounds[:, 1]
+        ax = add_confidence_interval(ax, time_series_copy)
 
     return ax
 
 
 def create_seaborn_time_series(time_series: pd.DataFrame, title: str = "Time Series"):
-    """Create a time series plot using seaborn style."""
+    """Create a time series plot using seaborn style supporting multidimensional data."""
     # Set seaborn style
     sns.set_style("whitegrid")
 
     fig, ax = plt.subplots(figsize=(12, 8))
 
-    # Use seaborn lineplot
-    sns.lineplot(
-        data=time_series.reset_index(),
-        x=time_series.index.name or "index",
-        y="value_0",
-        ax=ax,
-        color="blue",
-        linewidth=2,
-    )
+    # Find all value columns (value_0, value_1, value_2, etc.)
+    value_cols = [col for col in time_series.columns if col.startswith('value_')]
+    
+    if not value_cols:
+        raise ValueError("No value columns found. Expected columns starting with 'value_'")
+
+    # Plot all value columns using seaborn
+    time_series_reset = time_series.reset_index()
+    index_name = time_series.index.name or "index"
+    
+    for col in value_cols:
+        sns.lineplot(
+            data=time_series_reset,
+            x=index_name,
+            y=col,
+            ax=ax,
+            linewidth=2,
+            legend=False  # No legend labels as requested
+        )
 
     ax.set_title(title, fontsize=14, fontweight="bold")
     ax.set_xlabel("Time", fontsize=12)
@@ -185,31 +214,41 @@ def add_seaborn_anomalies(
     ax: Axes,
     time_series: pd.DataFrame,
     is_anomaly: np.ndarray,
-    expected_values: np.array,
-    expected_bounds: np.array,
+    expected_values: np.array = None,
+    expected_bounds: np.array = None,
 ):
-    """Add anomalies using seaborn style."""
-    time_series = time_series.copy()
-    time_series["expected"] = expected_values
-    time_series["upper"] = expected_bounds[:, 0]
-    time_series["lower"] = expected_bounds[:, 1]
+    """Add anomalies using seaborn style. For multidimensional data, draws red vertical lines at anomaly timestamps."""
+    # Find all value columns to determine if this is multidimensional data
+    value_cols = [col for col in time_series.columns if col.startswith('value_')]
+    
+    # Filter anomaly timestamps
+    anomaly_mask = is_anomaly == 1
+    anomaly_timestamps = time_series.index[anomaly_mask]
+    
+    if len(value_cols) > 1:
+        # Multidimensional case: draw red vertical lines
+        for timestamp in anomaly_timestamps:
+            ax.axvline(x=timestamp, color='red', alpha=0.7, linewidth=1.5, label='Anomaly' if timestamp == anomaly_timestamps[0] else "")
+    else:
+        # Single-dimensional case: use scatter points (backward compatibility)
+        anomaly_points = time_series[anomaly_mask]
+        if not anomaly_points.empty:
+            sns.scatterplot(
+                x=anomaly_points.index,
+                y=anomaly_points["value_0"],
+                ax=ax,
+                color="red",
+                s=100,
+                label="Anomalies",
+                zorder=5,
+            )
 
-    # Filter anomaly points
-    anomaly_points = time_series[is_anomaly == 1]
-
-    # Add anomaly points using seaborn
-    if not anomaly_points.empty:
-        sns.scatterplot(
-            x=anomaly_points.index,
-            y=anomaly_points["value_0"],
-            ax=ax,
-            color="red",
-            s=100,
-            label="Anomalies",
-            zorder=5,
-        )
-
-    # Add confidence interval
-    ax = add_seaborn_confidence_interval(ax, time_series)
+    # Add confidence interval if provided
+    if expected_values is not None and expected_bounds is not None:
+        time_series_copy = time_series.copy()
+        time_series_copy["expected"] = expected_values
+        time_series_copy["upper"] = expected_bounds[:, 0]
+        time_series_copy["lower"] = expected_bounds[:, 1]
+        ax = add_seaborn_confidence_interval(ax, time_series_copy)
 
     return ax

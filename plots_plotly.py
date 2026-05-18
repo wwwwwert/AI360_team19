@@ -48,8 +48,27 @@ def update_layout(fig: go.Figure):
 
 
 def plot_time_series(time_series: pd.DataFrame, title: str = "Time Series"):
+    """Create a basic time series plot supporting multidimensional data."""
     fig = go.Figure()
-    add_line(fig, time_series.index, time_series["value_0"], title, "blue")
+    
+    # Find all value columns (value_0, value_1, value_2, etc.)
+    value_cols = [col for col in time_series.columns if col.startswith('value_')]
+    
+    if not value_cols:
+        raise ValueError("No value columns found. Expected columns starting with 'value_'")
+    
+    # Plot all value columns without legend labels
+    for i, col in enumerate(value_cols):
+        fig.add_trace(
+            go.Scatter(
+                x=time_series.index,
+                y=time_series[col],
+                mode="lines",
+                showlegend=False,  # No legend labels as requested
+                line=dict(width=1.5)
+            )
+        )
+    
     update_layout(fig)
     return fig
 
@@ -113,16 +132,41 @@ def add_anomalies(
     fig: go.Figure,
     time_series: pd.DataFrame,
     is_anomaly: np.ndarray,
-    expected_values: np.array,
-    expected_bounds: np.array,
+    expected_values: np.array = None,
+    expected_bounds: np.array = None,
 ):
-    time_series = time_series.copy()
-    time_series["expected"] = expected_values
-    time_series["upper"] = expected_bounds[:, 0]
-    time_series["lower"] = expected_bounds[:, 1]
-    anomaly_points = time_series[is_anomaly == 1]
-    fig = add_points(
-        fig, anomaly_points.index, anomaly_points["value_0"], "Anomalies", "red"
-    )
-    fig = add_confidence_interval(fig, time_series)
+    """Add anomaly visualization. For multidimensional data, draws red vertical lines at anomaly timestamps."""
+    # Find all value columns to determine if this is multidimensional data
+    value_cols = [col for col in time_series.columns if col.startswith('value_')]
+    
+    # Filter anomaly timestamps
+    anomaly_mask = is_anomaly == 1
+    anomaly_timestamps = time_series.index[anomaly_mask]
+    
+    if len(value_cols) > 1:
+        # Multidimensional case: draw red vertical lines
+        for i, timestamp in enumerate(anomaly_timestamps):
+            fig.add_vline(
+                x=timestamp,
+                line=dict(color="red", width=1.5, dash="dash"),
+                opacity=0.7,
+                name="Anomaly" if i == 0 else None,
+                showlegend=(i == 0)  # Only show legend for first line
+            )
+    else:
+        # Single-dimensional case: use points (backward compatibility)
+        anomaly_points = time_series[anomaly_mask]
+        if not anomaly_points.empty:
+            fig = add_points(
+                fig, anomaly_points.index, anomaly_points["value_0"], "Anomalies", "red"
+            )
+    
+    # Add confidence interval if provided
+    if expected_values is not None and expected_bounds is not None:
+        time_series_copy = time_series.copy()
+        time_series_copy["expected"] = expected_values
+        time_series_copy["upper"] = expected_bounds[:, 0]
+        time_series_copy["lower"] = expected_bounds[:, 1]
+        fig = add_confidence_interval(fig, time_series_copy)
+
     return fig

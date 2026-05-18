@@ -10,6 +10,7 @@ from ..models import (
     ModelResult,
     ProphetDetector,
     STLDetector,
+    ARDevDetector
 )
 
 DEFAULT_CONFIGURATION = {
@@ -32,6 +33,7 @@ class AnomalyDetectionSystem:
 
     AVAILABLE_MODELS = {
         "Autoregressive": ARDetector,
+        "Autoregressive Dev": ARDevDetector,
         "Facebook Prophet": ProphetDetector,
         # "_Random": RandomDetector,
         "STLDetector": STLDetector,
