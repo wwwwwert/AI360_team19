@@ -93,6 +93,7 @@ import pandas as pd
 import numpy as np
 from scipy.interpolate import CubicSpline
 
+
 def spline_interpolate(
     df: pd.DataFrame,
     value_column: str = "value_0",
