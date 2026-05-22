@@ -72,6 +72,9 @@ def calculate_std(self, residual: np.array, apply_holidays=False, dates=None, re
 ```
 
 **Адаптивное обучение параметра праздника:**
+
+Используется для экспериментов (поскольку на практике недоступна). Это нужно, чтобы проверить, какой на практике должен быть коэффициент. Вдруг он одинаковый на всех рядах
+
 ```python
 def calculate_std_backward(self, dates: list, predicted: np.array, ground_truth: np.array):
     hols = holidays.RU()
