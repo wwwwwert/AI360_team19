@@ -89,6 +89,76 @@ def linear_interpolate(
 
     return df
 
+import pandas as pd
+import numpy as np
+from scipy.interpolate import CubicSpline
+
+def spline_interpolate(
+    df: pd.DataFrame,
+    value_column: str = "value_0",
+    min_points: int = 4
+) -> pd.DataFrame:
+    """
+    Интерполирует нормальные точки (is_anomaly=0) с помощью кубического сплайна,
+    построенного по аномальным точкам (is_anomaly=1).
+
+    Аномальные точки остаются без изменений.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame с колонками value_column и is_anomaly
+    value_column : str
+        Колонка для интерполяции
+    min_points : int, default=4
+        Минимальное количество аномальных точек для построения сплайна.
+        Если их меньше, выполняется линейная интерполяция (через linear_interpolate).
+
+    Returns
+    -------
+    pd.DataFrame
+        Копия DataFrame с интерполированными нормальными точками.
+    """
+    df = df.copy()
+
+    anomaly_mask = df["is_anomaly"] == 1
+    normal_mask = df["is_anomaly"] == 0
+
+    # Если нет нормальных точек, возвращаем копию
+    if not normal_mask.any():
+        return df
+
+    # Аномальные точки, по которым строим сплайн
+    anomaly_df = df[anomaly_mask]
+
+
+    # Преобразуем индексы в числовые значения (timestamp или порядковый номер)
+    # Предполагаем, что индекс — это datetime, у которого есть метод timestamp()
+    try:
+        x_anomaly = np.array([idx.timestamp() for idx in anomaly_df.index])
+    except AttributeError:
+        # Если индекс не datetime, используем порядковый номер
+        x_anomaly = np.arange(len(df))[anomaly_mask]
+    y_anomaly = anomaly_df[value_column].values
+
+    # Строим кубический сплайн
+    cs = CubicSpline(x_anomaly, y_anomaly, extrapolate=False)
+
+    # Интерполируем значения для нормальных точек
+    normal_indices = df.index[normal_mask]
+    try:
+        x_normal = np.array([idx.timestamp() for idx in normal_indices])
+    except AttributeError:
+        x_normal = np.arange(len(df))[normal_mask]
+
+    # Вычисляем интерполированные значения
+    interpolated_values = cs(x_normal)
+
+    # Заменяем значения в DataFrame
+    df.loc[normal_mask, value_column] = interpolated_values
+
+    return df
+
 def z_scores_anomaly_transform(
     series: TimeSeriesWrapper,
     system: AnomalyDetectionSystem
@@ -115,7 +185,7 @@ def z_scores_anomaly_transform(
         else z_scores
     )
 
-    df = linear_interpolate(
+    df = spline_interpolate(
         df,
         value_column="z_score"
     )
