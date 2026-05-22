@@ -1,0 +1,34 @@
+# Edit this file to change the benchmark without touching Python code.
+dataset: data/GesturePebbleZ1
+format: ts
+
+# Keep one method here when you want to check only one model/method.
+# Available: mass_subsequence.
+methods:
+  - mass_subsequence
+
+k_values:
+  - 1
+  - 5
+  - 10
+
+metrics:
+  names:
+    - hitrate
+    - precision
+    - recall
+    - f1
+  averages:
+    - macro
+
+normalize: true
+resample: true
+distance_scale: sqrt_m
+resample_length: max
+max_test: null
+
+output_dir: gesture_pebble_z1_benchmark
+
+exports:
+  parsed_csv: false
+  wide_csv: false

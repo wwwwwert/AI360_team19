@@ -48,6 +48,8 @@ def prepare_relevant_counts(relevant_counts, n_rows: int) -> np.ndarray:
     counts = np.asarray(relevant_counts, dtype=float).reshape(-1)
     if len(counts) != n_rows:
         raise ValueError("relevant_counts must contain the same number of rows as target")
+    if not np.all(np.isfinite(counts)):
+        raise ValueError("relevant_counts must contain only finite values")
     if np.any(counts < 0):
         raise ValueError("relevant_counts must be non-negative")
     return counts
@@ -62,8 +64,9 @@ def collect_labels(target: np.ndarray, predicted: np.ndarray | None = None) -> l
     return sorted(values, key=label_sort_key)
 
 
-def label_sort_key(value: str) -> int | str:
-    return int(value) if str(value).isdigit() else str(value)
+def label_sort_key(value: str) -> tuple[int, int | str]:
+    text = str(value)
+    return (0, int(text)) if text.isdigit() else (1, text)
 
 
 def safe_divide(numerator: float, denominator: float) -> float:
@@ -92,4 +95,3 @@ def confusion_matrix(y_true: np.ndarray, y_pred: np.ndarray) -> pd.DataFrame:
         dropna=False,
     )
     return matrix.reindex(index=labels, columns=labels, fill_value=0)
-

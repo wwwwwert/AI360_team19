@@ -19,7 +19,7 @@ METRIC_REGISTRY: dict[str, type[BaseMetric]] = {
     "f1": F1,
 }
 DEFAULT_METRIC_NAMES = ("hitrate", "precision", "recall", "f1")
-DEFAULT_AVERAGES = ("micro", "macro")
+DEFAULT_AVERAGES = ("macro",)
 
 
 class ClassificationMetricCollection:

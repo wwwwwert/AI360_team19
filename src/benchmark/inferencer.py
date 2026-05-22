@@ -20,6 +20,7 @@ class GesturePebbleZ1Benchmark:
         self,
         dataset: GesturePebbleZ1Dataset,
         normalize: bool = True,
+        resample: bool = False,
         distance_scale: Literal["sqrt_m", "none"] = "sqrt_m",
         resample_length: int | Literal["max", "median"] = "max",
         metric_names: Iterable[str] = DEFAULT_METRIC_NAMES,
@@ -27,6 +28,7 @@ class GesturePebbleZ1Benchmark:
     ) -> None:
         self.dataset = dataset
         self.normalize = normalize
+        self.resample = resample
         self.distance_scale = distance_scale
         self.resample_length = resample_length
         self.metric_names = tuple(metric_names)
@@ -42,7 +44,7 @@ class GesturePebbleZ1Benchmark:
         for method in methods:
             for k in k_values:
                 result = self.evaluate(method=method, k=k, max_test=max_test)
-                results[f"{method}@{k}"] = result
+                results[f"{self._run_name(method)}@{k}"] = result
         return results
 
     def evaluate(
@@ -85,6 +87,7 @@ class GesturePebbleZ1Benchmark:
 
         return BenchmarkResult(
             method=method,
+            resample=self.resample,
             k=k,
             predictions=predictions_df,
             neighbors=neighbors_df,
@@ -103,10 +106,14 @@ class GesturePebbleZ1Benchmark:
     def _build_predictor(self, method: MethodName) -> Predictor:
         return Predictor(
             method=method,
+            resample=self.resample,
             normalize=self.normalize,
             distance_scale=self.distance_scale,
             resample_length=self.resample_length,
         )
+
+    def _run_name(self, method: MethodName) -> str:
+        return f"{method}_resample" if self.resample else method
 
     @staticmethod
     def _to_legacy_prediction_columns(predictions: pd.DataFrame) -> pd.DataFrame:

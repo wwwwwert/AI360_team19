@@ -1,4 +1,5 @@
 from src.benchmark import (
+    BenchmarkConfig,
     BenchmarkResult,
     GesturePebbleZ1Benchmark,
     MethodName,
@@ -8,6 +9,7 @@ from src.benchmark import (
     confusion_matrix,
     equal_length_mass_distance,
     euclidean_distance,
+    load_benchmark_config,
     mass_subsequence_distance,
     resample_values,
     scale_distance,
@@ -24,6 +26,7 @@ from src.datasets.gesture_pebble_z1 import (
 )
 
 __all__ = [
+    "BenchmarkConfig",
     "BenchmarkResult",
     "CLASS_NAMES",
     "GesturePebbleZ1Benchmark",
@@ -37,6 +40,7 @@ __all__ = [
     "confusion_matrix",
     "equal_length_mass_distance",
     "euclidean_distance",
+    "load_benchmark_config",
     "main",
     "mass_subsequence_distance",
     "parse_args",

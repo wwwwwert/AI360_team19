@@ -28,7 +28,12 @@ def write_benchmark_outputs(
         result.metrics.to_csv(metrics_path, index=False)
         result.confusion_matrix.to_csv(confusion_path)
 
-        row = {"run": key, "method": result.method, "k": result.k}
+        row = {
+            "run": key,
+            "method": result.method,
+            "resample": result.resample,
+            "k": result.k,
+        }
         overall = result.metrics[result.metrics["label"] == "overall"]
         for metric_row in overall.itertuples(index=False):
             column_name = f"{metric_row.metric_name}_{metric_row.average}"

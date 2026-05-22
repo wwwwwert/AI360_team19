@@ -6,7 +6,8 @@ from typing import Literal
 import pandas as pd
 
 
-MethodName = Literal["mass_subsequence", "mass_resample", "euclidean_resample"]
+METHOD_NAMES = ("mass_subsequence",)
+MethodName = Literal["mass_subsequence"]
 
 
 @dataclass(frozen=True)
@@ -14,6 +15,7 @@ class BenchmarkResult:
     """Container for one benchmark run."""
 
     method: str
+    resample: bool
     k: int
     predictions: pd.DataFrame
     neighbors: pd.DataFrame

@@ -6,8 +6,6 @@ import numpy as np
 import pandas as pd
 
 from src.benchmark.distances import (
-    equal_length_mass_distance,
-    euclidean_distance,
     mass_subsequence_distance,
     resample_values,
 )
@@ -29,11 +27,13 @@ class Predictor:
     def __init__(
         self,
         method: MethodName = "mass_subsequence",
+        resample: bool = False,
         normalize: bool = True,
         distance_scale: Literal["sqrt_m", "none"] = "sqrt_m",
         resample_length: int | Literal["max", "median"] = "max",
     ) -> None:
         self.method = method
+        self.resample = resample
         self.normalize = normalize
         self.distance_scale = distance_scale
         self.resample_length = resample_length
@@ -53,7 +53,7 @@ class Predictor:
 
         self._reference_cache = {}
         self._fixed_length = None
-        if self.method in {"mass_resample", "euclidean_resample"}:
+        if self.resample:
             context_records = (
                 list(resample_context_records)
                 if resample_context_records is not None
@@ -111,6 +111,8 @@ class Predictor:
         )
         result: dict[str, object] = {
             "method": self.method,
+            "resample": self.resample,
+            "resample_length": self._fixed_length if self.resample else None,
             "k": k,
             "query_id": query_record.series_id,
             "true_label": query_record.label,
@@ -154,6 +156,8 @@ class Predictor:
         distance_info = self._distance(query_record, reference_record)
         return {
             "method": self.method,
+            "resample": self.resample,
+            "resample_length": self._fixed_length if self.resample else None,
             "query_id": query_record.series_id,
             "query_label": query_record.label,
             "query_label_name": query_record.label_name,
@@ -170,34 +174,25 @@ class Predictor:
     ) -> dict[str, object]:
         if self.method == "mass_subsequence":
             return mass_subsequence_distance(
-                query_record.values,
-                reference_record.values,
-                normalize=self.normalize,
-                distance_scale=self.distance_scale,
-            )
-
-        if self.method == "mass_resample":
-            return equal_length_mass_distance(
-                self._resampled_query(query_record),
-                self._reference_cache[reference_record.series_id],
-                normalize=self.normalize,
-                distance_scale=self.distance_scale,
-            )
-
-        if self.method == "euclidean_resample":
-            return euclidean_distance(
-                self._resampled_query(query_record),
-                self._reference_cache[reference_record.series_id],
+                self._query_values(query_record),
+                self._reference_values(reference_record),
                 normalize=self.normalize,
                 distance_scale=self.distance_scale,
             )
 
         raise ValueError(f"Unknown method: {self.method}")
 
-    def _resampled_query(self, query_record: GestureRecord) -> np.ndarray:
+    def _query_values(self, query_record: GestureRecord) -> np.ndarray:
+        if not self.resample:
+            return query_record.values
         if self._fixed_length is None:
             raise RuntimeError("Resample length is not initialized. Call fit() first.")
         return resample_values(query_record.values, self._fixed_length)
+
+    def _reference_values(self, reference_record: GestureRecord) -> np.ndarray:
+        if not self.resample:
+            return reference_record.values
+        return self._reference_cache[reference_record.series_id]
 
     def _resolve_resample_length(self, records: list[GestureRecord]) -> int:
         lengths = np.array([record.length for record in records], dtype=int)
