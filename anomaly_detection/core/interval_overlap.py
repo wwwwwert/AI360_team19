@@ -353,6 +353,107 @@ class AnomalyIntervalOverlapSearch:
             overlap_threshold=self.overlap_threshold,
         )
 
+    def search_series_dict(
+        self,
+        series_dict: Mapping[str, pd.Series],
+        *,
+        query_series: str,
+        start_time: TimeLike,
+        end_time: TimeLike,
+        candidate_series: Optional[Sequence[str]] = None,
+        alignment_tolerance: GapLike = None,
+    ) -> AnomalyIntervalSearchResult:
+        """
+        Search independent time-series whose anomaly intervals overlap in time.
+
+        Unlike search(), this method does not require all series to share one
+        DataFrame index. Each series is detected on its own timestamp index, and
+        candidate anomaly masks are aligned to the query window index only for
+        overlap scoring.
+        """
+        if not series_dict:
+            raise ValueError("series_dict must not be empty")
+
+        prepared = {
+            str(name): self._prepare_independent_series(name, series)
+            for name, series in series_dict.items()
+        }
+        if query_series not in prepared:
+            raise ValueError(f"Unknown query series {query_series!r}. Available series: {list(prepared)}")
+
+        query_name = str(query_series)
+        if candidate_series is None:
+            candidate_names = [name for name in prepared if name != query_name]
+        else:
+            candidate_names = [str(name) for name in candidate_series if str(name) != query_name]
+            unknown = [name for name in candidate_names if name not in prepared]
+            if unknown:
+                raise ValueError(f"Unknown candidate series: {unknown}")
+
+        start_ts = pd.Timestamp(start_time)
+        end_ts = pd.Timestamp(end_time)
+        if start_ts > end_ts:
+            raise ValueError("start_time must be <= end_time")
+
+        query_window_index = pd.DatetimeIndex(prepared[query_name].loc[start_ts:end_ts].index)
+        if len(query_window_index) == 0:
+            raise ValueError("The requested query time range does not contain any query points")
+
+        series_names = [query_name, *candidate_names]
+        detections = self._detect_independent_series(prepared, series_names)
+        window_intervals = {
+            name: self._extract_window_intervals(
+                prepared[name],
+                detections[name],
+                start_ts,
+                end_ts,
+            )
+            for name in series_names
+        }
+
+        query_intervals = window_intervals[query_name]
+        query_interval_mask = self._intervals_to_reference_mask(
+            query_intervals,
+            query_window_index,
+            alignment_tolerance=None,
+        )
+
+        series_matches = {}
+        for name in series_names:
+            if name == query_name:
+                candidate_interval_mask = query_interval_mask
+            else:
+                candidate_interval_mask = self._intervals_to_reference_mask(
+                    window_intervals[name],
+                    query_window_index,
+                    alignment_tolerance=alignment_tolerance,
+                )
+
+            metrics = compute_interval_overlap_metrics(query_interval_mask, candidate_interval_mask)
+            score = self._score(metrics)
+            is_query = name == query_name
+            matched = self._is_matched(metrics, score)
+            series_matches[name] = SeriesIntervalMatch(
+                series_name=name,
+                intervals=window_intervals[name],
+                metrics=metrics,
+                score=score,
+                matched=matched,
+                is_query=is_query,
+            )
+
+        return AnomalyIntervalSearchResult(
+            query_series=query_name,
+            query_start=start_ts,
+            query_end=end_ts,
+            query_intervals=query_intervals,
+            series_matches=series_matches,
+            detections=detections,
+            window_index=query_window_index,
+            score_metric="weighted" if self.metric_weights else self.metric,
+            overlap_threshold=self.overlap_threshold,
+        )
+
     def _detect_each_series(self, df: pd.DataFrame, series_names: Sequence[str]) -> dict[str, DetectionResult]:
         detections: dict[str, DetectionResult] = {}
         seen = set()
@@ -365,6 +466,77 @@ class AnomalyIntervalOverlapSearch:
             detections[name] = self.detector.detect(single_series)
 
         return detections
+
+    def _detect_independent_series(
+        self,
+        series_dict: Mapping[str, pd.Series],
+        series_names: Sequence[str],
+    ) -> dict[str, DetectionResult]:
+        detections: dict[str, DetectionResult] = {}
+        seen = set()
+
+        for name in series_names:
+            if name in seen:
+                continue
+            seen.add(name)
+            single_series = pd.DataFrame({"value_0": series_dict[name].astype(float)})
+            detections[name] = self.detector.detect(single_series)
+
+        return detections
+
+    def _extract_window_intervals(
+        self,
+        series: pd.Series,
+        detection: DetectionResult,
+        start_ts: pd.Timestamp,
+        end_ts: pd.Timestamp,
+    ) -> list[AnomalyInterval]:
+        window_mask = (series.index >= start_ts) & (series.index <= end_ts)
+        window_index = pd.DatetimeIndex(series.index[window_mask])
+        if len(window_index) == 0:
+            return []
+
+        return extract_anomaly_intervals(
+            window_index,
+            detection.is_anomaly[window_mask],
+            max_gap=self.max_gap,
+            min_points=self.min_points,
+        )
+
+    @staticmethod
+    def _prepare_independent_series(name: str, series: pd.Series) -> pd.Series:
+        if not isinstance(series, pd.Series):
+            raise TypeError(f"{name!r} must be a pandas Series")
+
+        prepared = pd.to_numeric(series, errors="coerce").dropna()
+        if prepared.empty:
+            raise ValueError(f"{name!r} is empty")
+        if not isinstance(prepared.index, pd.DatetimeIndex):
+            prepared.index = pd.to_datetime(prepared.index)
+
+        prepared = prepared[~prepared.index.isna()]
+        prepared = prepared.sort_index()
+        prepared = prepared[~prepared.index.duplicated(keep="last")]
+        if prepared.empty:
+            raise ValueError(f"{name!r} does not contain valid timestamps")
+        return prepared
+
+    @staticmethod
+    def _intervals_to_reference_mask(
+        intervals: Sequence[AnomalyInterval],
+        reference_index: pd.DatetimeIndex,
+        *,
+        alignment_tolerance: GapLike,
+    ) -> np.ndarray:
+        reference_index = pd.DatetimeIndex(reference_index)
+        mask = np.zeros(len(reference_index), dtype=bool)
+        if len(reference_index) == 0:
+            return mask
+
+        tolerance = pd.Timedelta(0) if alignment_tolerance is None else pd.Timedelta(alignment_tolerance)
+        for interval in intervals:
+            mask |= (reference_index >= interval.start - tolerance) & (reference_index <= interval.end + tolerance)
+        return mask
 
     def _score(self, metrics: IntervalOverlapMetrics) -> float:
         metric_values = metrics.as_dict()
