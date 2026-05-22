@@ -94,6 +94,8 @@ UI_TEXT = {
         "metric_points": "Points",
         "source_not_found": "source series was not found among loaded series",
         "overlap_spinner": "Detecting anomalies and computing overlap...",
+        "overlap_progress_start": "Preparing anomaly overlap search...",
+        "overlap_progress": "Detecting anomalies {current}/{total}: {series}",
         "query_no_intervals": "The detector found no anomaly intervals in the query window.",
         "overlap_only_query": "Overlap was found only for the query series; candidates did not pass thresholds.",
         "overlap_failed": "Could not run anomaly overlap search: {error}",
@@ -172,6 +174,8 @@ UI_TEXT = {
         "metric_points": "Точек",
         "source_not_found": "source ряд не найден среди загруженных рядов",
         "overlap_spinner": "Детектирую аномалии и считаю overlap...",
+        "overlap_progress_start": "Подготовка overlap-поиска...",
+        "overlap_progress": "Детектирую аномалии {current}/{total}: {series}",
         "query_no_intervals": "В query-окне детектор не нашёл аномальных интервалов.",
         "overlap_only_query": "Overlap найден только для query-ряда; кандидаты не прошли пороги.",
         "overlap_failed": "Не удалось выполнить overlap-поиск: {error}",
@@ -424,11 +428,29 @@ def infer_alignment_tolerance(index):
 def anomaly_points(series, detection, start_time, end_time, detection_index=None):
     if detection_index is None:
         detection_index = series.index
-    mask = pd.Series(detection.is_anomaly.astype(bool), index=detection_index)
+
+    detection_mask = np.asarray(detection.is_anomaly, dtype=bool).reshape(-1)
+    detection_index = pd.DatetimeIndex(detection_index)
+    if len(detection_mask) != len(detection_index):
+        if len(detection_mask) == len(series.index):
+            detection_index = pd.DatetimeIndex(series.index)
+        else:
+            return series.iloc[0:0]
+
+    mask = pd.Series(detection_mask, index=detection_index).sort_index()
     values = series.loc[start_time:end_time]
     if values.empty:
         return values
     return values[mask.loc[start_time:end_time].reindex(values.index, fill_value=False)]
+
+
+def prepare_overlap_series(series):
+    prepared = pd.to_numeric(series, errors="coerce").dropna()
+    if not isinstance(prepared.index, pd.DatetimeIndex):
+        prepared.index = pd.to_datetime(prepared.index)
+
+    prepared = prepared[~prepared.index.isna()].sort_index()
+    return prepared[~prepared.index.duplicated(keep="last")]
 
 
 def add_interval_spans(fig, intervals, *, color, opacity=0.18):
@@ -846,8 +868,13 @@ if run_search:
     if search_kind == SEARCH_ANOMALY_OVERLAP:
         try:
             overlap_series_dict = {
-                name: series.sort_index()
+                name: prepare_overlap_series(series)
                 for name, series in series_dict.items()
+                if not series.empty
+            }
+            overlap_series_dict = {
+                name: series
+                for name, series in overlap_series_dict.items()
                 if not series.empty
             }
             if source_id not in overlap_series_dict:
@@ -872,14 +899,31 @@ if run_search:
             )
 
             alignment_tolerance = infer_alignment_tolerance(query.index)
-            with st.spinner(t("overlap_spinner")):
+            overlap_progress = st.progress(0, text=t("overlap_progress_start"))
+
+            def update_overlap_progress(current, total, series_name):
+                progress_value = current / total if total else 1.0
+                overlap_progress.progress(
+                    progress_value,
+                    text=t(
+                        "overlap_progress",
+                        current=current,
+                        total=total,
+                        series=series_name,
+                    ),
+                )
+
+            try:
                 overlap_result = searcher.search_series_dict(
                     overlap_series_dict,
                     query_series=source_id,
                     start_time=query_time_start,
                     end_time=query_time_end,
                     alignment_tolerance=alignment_tolerance,
+                    progress_callback=update_overlap_progress,
                 )
+            finally:
+                overlap_progress.empty()
 
             overlap_df = overlap_result.to_frame(include_query=True)
             st.session_state["overlap_result"] = overlap_result
@@ -1100,6 +1144,7 @@ with tab_overlay:
                         overlap_result.detections[column],
                         query_time_start,
                         query_time_end,
+                        detection_index=overlap_series_dict[column].index,
                     )
                     if not points.empty:
                         fig.add_trace(go.Scatter(
@@ -1289,6 +1334,7 @@ with tab_anomalies:
             overlap_result.detections[selected_series],
             context_start,
             context_end,
+            detection_index=selected_series_values.index,
         )
 
         col1, col2, col3, col4 = st.columns(4)

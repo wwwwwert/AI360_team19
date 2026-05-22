@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Mapping, Optional, Sequence, Union
+from typing import Callable, Mapping, Optional, Sequence, Union
 
 import numpy as np
 import pandas as pd
@@ -362,6 +362,7 @@ class AnomalyIntervalOverlapSearch:
         end_time: TimeLike,
         candidate_series: Optional[Sequence[str]] = None,
         alignment_tolerance: GapLike = None,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
     ) -> AnomalyIntervalSearchResult:
         """
         Search independent time-series whose anomaly intervals overlap in time.
@@ -400,7 +401,11 @@ class AnomalyIntervalOverlapSearch:
             raise ValueError("The requested query time range does not contain any query points")
 
         series_names = [query_name, *candidate_names]
-        detections = self._detect_independent_series(prepared, series_names)
+        detections = self._detect_independent_series(
+            prepared,
+            series_names,
+            progress_callback=progress_callback,
+        )
         window_intervals = {
             name: self._extract_window_intervals(
                 prepared[name],
@@ -471,16 +476,18 @@ class AnomalyIntervalOverlapSearch:
         self,
         series_dict: Mapping[str, pd.Series],
         series_names: Sequence[str],
+        *,
+        progress_callback: Optional[Callable[[int, int, str], None]] = None,
     ) -> dict[str, DetectionResult]:
         detections: dict[str, DetectionResult] = {}
-        seen = set()
+        unique_names = list(dict.fromkeys(series_names))
+        total = len(unique_names)
 
-        for name in series_names:
-            if name in seen:
-                continue
-            seen.add(name)
+        for i, name in enumerate(unique_names, start=1):
             single_series = pd.DataFrame({"value_0": series_dict[name].astype(float)})
             detections[name] = self.detector.detect(single_series)
+            if progress_callback is not None:
+                progress_callback(i, total, name)
 
         return detections
 
