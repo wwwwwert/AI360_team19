@@ -12,7 +12,10 @@ dependencies = [
     "salesforce-merlion>=2.0.2",
     "seaborn>=0.13.2",
     "statsmodels>=0.14.6",
+    "streamlit>=1.57.0",
+    "stumpy>=1.14.1",
     "termcolor>=3.3.0",
+    "watchdog>=6.0.0",
 ]
 
 [dependency-groups]
