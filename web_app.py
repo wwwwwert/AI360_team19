@@ -486,16 +486,14 @@ def has_fresh_overlap(search_signature):
     )
 
 with st.sidebar:
-    lang_col, _ = st.columns([1, 3])
-    with lang_col:
-        selected_language = st.segmented_control(
-            "Language",
-            options=["EN", "RU"],
-            default=safe_default(st.session_state.get("language", "EN"), ["EN", "RU"], "EN"),
-            label_visibility="collapsed",
-            width="content",
-        )
-        st.session_state["language"] = selected_language or "EN"
+    selected_language = st.segmented_control(
+        "Language",
+        options=["EN", "RU"],
+        default=safe_default(st.session_state.get("language", "EN"), ["EN", "RU"], "EN"),
+        label_visibility="collapsed",
+        width="content",
+    )
+    st.session_state["language"] = selected_language or "EN"
 
     st.header(t("data_header"))
     uploaded_files = st.file_uploader(
