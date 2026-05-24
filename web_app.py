@@ -1,33 +1,3 @@
-import os
-import subprocess
-import sys
-from pathlib import Path
-
-os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
-
-import streamlit as st
-import pandas as pd
-import numpy as np
-import plotly.graph_objects as go
-
-from anomaly_detection import AnomalyDetectionSystem, AnomalyIntervalOverlapSearch
-
-
-def _running_inside_streamlit():
-    from streamlit.runtime.scriptrunner import get_script_run_ctx
-
-    return get_script_run_ctx(suppress_warning=True) is not None
-
-
-if __name__ == "__main__" and not _running_inside_streamlit():
-    script_path = Path(__file__).resolve()
-    cmd = [sys.executable, "-m", "streamlit", "run", str(script_path), *sys.argv[1:]]
-    print("Starting Streamlit app:", flush=True)
-    print(" ".join(cmd), flush=True)
-    raise SystemExit(subprocess.call(cmd))
-
-st.set_page_config(layout="wide", page_title="Time Series Similarity Search")
-
 
 RESULT_COLUMNS = [
     "series_id",
@@ -235,6 +205,53 @@ OPTION_TEXT = {
 }
 
 
+
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+os.environ.setdefault("MPLCONFIGDIR", "/tmp/matplotlib")
+
+import streamlit as st
+import pandas as pd
+import numpy as np
+import plotly.graph_objects as go
+
+from anomaly_detection import AnomalyDetectionSystem, AnomalyIntervalOverlapSearch
+
+
+def _running_inside_streamlit():
+    from streamlit.runtime.scriptrunner import get_script_run_ctx
+
+    return get_script_run_ctx(suppress_warning=True) is not None
+
+
+if __name__ == "__main__" and not _running_inside_streamlit():
+    script_path = Path(__file__).resolve()
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "streamlit",
+        "run",
+        str(script_path),
+
+        "--server.port=50127",
+        "--server.address=0.0.0.0",
+        "--server.headless=true",
+
+        *sys.argv[1:],
+    ]
+
+    print("Starting Streamlit app:", flush=True)
+    print(" ".join(cmd), flush=True)
+
+    raise SystemExit(subprocess.call(cmd))
+
+st.set_page_config(layout="wide", page_title="Time Series Similarity Search")
+
+
 def language():
     return st.session_state.get("language", "EN")
 
@@ -278,6 +295,72 @@ def value_columns_from_frame(df):
         if str(column).lower() == "value" or str(column).lower().startswith("value_")
     ]
     return value_columns or numeric_columns
+
+
+PROJECT_DATASETS_DIR = Path("project_datasets")
+
+
+def available_project_datasets():
+    if not PROJECT_DATASETS_DIR.exists():
+        return []
+
+    return sorted(
+        [f.name for f in PROJECT_DATASETS_DIR.glob("*.csv")]
+    )
+
+
+def load_series_from_project_dataset(filename):
+    filepath = PROJECT_DATASETS_DIR / filename
+
+    if not filepath.exists():
+        raise FileNotFoundError(
+            f"Dataset '{filename}' not found in {PROJECT_DATASETS_DIR}"
+        )
+
+    df = pd.read_csv(filepath)
+
+    if "timestamp" not in df.columns:
+        raise ValueError(t("error_no_timestamp"))
+
+    numeric_timestamp = pd.to_numeric(df["timestamp"], errors="coerce")
+    if numeric_timestamp.notna().mean() >= 0.8:
+        timestamp = pd.to_datetime(numeric_timestamp, unit="ms", errors="coerce")
+    else:
+        timestamp = pd.to_datetime(df["timestamp"], errors="coerce")
+
+    df = df.assign(timestamp=timestamp).dropna(subset=["timestamp"])
+
+    if df.empty:
+        raise ValueError(t("error_parse_timestamp"))
+
+    df = df.set_index("timestamp").sort_index()
+
+    value_columns = value_columns_from_frame(df)
+
+    if len(value_columns) == 0:
+        raise ValueError(t("error_no_numeric"))
+
+    loaded = {}
+    file_stem = Path(filename).stem
+
+    for column in value_columns:
+        series = pd.to_numeric(df[column], errors="coerce").dropna()
+
+        if series.empty:
+            continue
+
+        series_name = (
+            file_stem
+            if len(value_columns) == 1
+            else f"{file_stem}:{column}"
+        )
+
+        loaded[series_name] = series.rename("value")
+
+    if not loaded:
+        raise ValueError(t("error_empty_numeric"))
+
+    return loaded
 
 
 def load_series_from_csv(file_obj, filename):
@@ -496,6 +579,15 @@ with st.sidebar:
     st.session_state["language"] = selected_language or "EN"
 
     st.header(t("data_header"))
+    project_dataset_options = available_project_datasets()
+
+    selected_project_datasets = st.multiselect(
+        "Choose base datasets",
+        options=project_dataset_options,
+        default=[],
+        placeholder="Select from project_datasets...",
+    )
+
     uploaded_files = st.file_uploader(
         t("upload_csv"),
         type="csv",
@@ -504,15 +596,37 @@ with st.sidebar:
 
     series_dict = {}
     series_errors = []
+
+    # -------------------------
+    # load built-in datasets
+    # -------------------------
+    for dataset_name in selected_project_datasets:
+        try:
+            loaded_series = load_series_from_project_dataset(dataset_name)
+
+            for name, series in loaded_series.items():
+                unique_name = unique_series_name(name, series_dict)
+                series_dict[unique_name] = series
+
+        except Exception as exc:
+            series_errors.append(f"{dataset_name}: {exc}")
+
+
+    # -------------------------
+    # load uploaded datasets
+    # -------------------------
     if uploaded_files:
         for f in uploaded_files:
             try:
                 loaded_series = load_series_from_csv(f, f.name)
+
                 for name, series in loaded_series.items():
                     unique_name = unique_series_name(name, series_dict)
                     series_dict[unique_name] = series
+
             except Exception as exc:
                 series_errors.append(f"{f.name}: {exc}")
+
 
         if series_dict:
             st.success(t("loaded_series", count=len(series_dict)))
@@ -1177,10 +1291,24 @@ with tab_overlay:
         else:
             st.subheader(t("shape_compare"))
 
-            n_overlay = st.slider(
-                t("overlay_count"),
-                1, len(results_df), min(5, len(results_df))
-            )
+
+            max_overlay = len(results_df)
+
+            if max_overlay < 1:
+                st.info("No results")
+                st.stop()
+
+            if max_overlay == 1:
+                n_overlay = 1
+            else:
+                n_overlay = st.slider(
+                    t("overlay_count"),
+                    1,
+                    max_overlay,
+                    min(5, max_overlay),
+                )
+
+
 
             fig = go.Figure()
             x = np.arange(len(query_values))
