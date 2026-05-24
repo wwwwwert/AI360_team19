@@ -5,7 +5,7 @@ from anomaly_detection.core.time_series import TimeSeriesWrapper
 from anomaly_detection.models.stl import STLDetector
 from visualize_common import plot_result, redraw_ax, setup_zoom_sync, add_holiday_slider
 
-HOLIDAY_PARAM_INIT = 2.0
+HOLIDAY_PARAM_INIT = 2.6970
 DATA_PATH = "data/1c/hourly_sales_with_anomalies.csv"
 
 

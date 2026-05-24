@@ -1,21 +1,9 @@
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 from pathlib import Path
 
-DATA_DIR = Path("data")
 from anomaly_detection import DEFAULT_CONFIGURATION, AnomalyDetectionSystem
-
-
-def load_csv_dataset(data_path: Path):
-    df = pd.read_csv(data_path)
-    df['timestamp'] = pd.to_datetime(df['timestamp'], unit='ms')
-    df.set_index('timestamp', inplace=True)
-    df = df[~df.index.duplicated(keep='first')]
-    df.sort_index(inplace=True)
-    time_series = df[['value']].copy()
-    time_series.columns = ['value_0']
-    labels = df['ground_truth'].values.astype(int)
-    return time_series, labels
 
 
 def calculate_metrics(true_labels, predictions):
@@ -28,54 +16,65 @@ def calculate_metrics(true_labels, predictions):
     return precision, recall, f1, tp, fp, fn
 
 
-# Загружаем один датасет
-csv_path = Path("data/yandex/series_000/data.csv")
-time_series, true_labels = load_csv_dataset(csv_path)
-dates = time_series.index
+def sweep_beta(
+    datasets: list[tuple[pd.DataFrame, np.ndarray]],
+    threshold: float = 3.49,
+    beta_min: float = 1.0,
+    beta_max: float = 5.0,
+    n_points: int = 250,
+    title: str = "F1 vs Holiday β",
+    plot_path: str = "beta_sweep.png",
+):
+    CONFIG = DEFAULT_CONFIGURATION.copy()
+    CONFIG["detection_model_params"]["threshold"] = threshold
+    CONFIG["detection_model_params"]["apply_holidays"] = True
+    system = AnomalyDetectionSystem(**CONFIG)
 
-print(f"Загружено {len(time_series)} точек, {true_labels.sum()} аномалий")
+    betas = np.linspace(beta_min, beta_max, n_points)
+    precisions, recalls, f1s = [], [], []
 
-# Конфиг с праздниками
-CONFIG = DEFAULT_CONFIGURATION.copy()
-CONFIG["detection_model_params"]["threshold"] = 3.49
-CONFIG["detection_model_params"]["apply_holidays"] = True
+    for i, beta in enumerate(betas):
+        system.holiday_param = np.float64(beta)
+        all_true, all_pred = [], []
+        for time_series, true_labels in datasets:
+            result = system.detect(time_series=time_series, dates=time_series.index)
+            all_pred.append(result.is_anomaly.astype(int))
+            all_true.append(true_labels)
+        precision, recall, f1, *_ = calculate_metrics(
+            np.concatenate(all_true), np.concatenate(all_pred)
+        )
+        precisions.append(precision)
+        recalls.append(recall)
+        f1s.append(f1)
+        print(f"  {i + 1:>3}/{n_points}  β={beta:.3f}  P={precision:.4f}  R={recall:.4f}  F1={f1:.4f}")
 
-system = AnomalyDetectionSystem(**CONFIG)
+    best_idx = int(np.argmax(f1s))
+    best_beta = betas[best_idx]
+    best_f1 = f1s[best_idx]
+    print(f"\nЛучший F1={best_f1:.4f} при β={best_beta:.4f}")
 
-N_EPOCHS = 100
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 7), sharex=True)
 
-print(f"\nОбучение на {N_EPOCHS} эпохах без сброса параметров...")
-print("=" * 70)
-print(f"{'Epoch':<8} {'Precision':<10} {'Recall':<10} {'F1':<10} {'Holiday β':<10}")
-print("=" * 70)
+    ax1.plot(betas, precisions, label="Precision")
+    ax1.plot(betas, recalls, label="Recall")
+    ax1.plot(betas, f1s, label="F1", linewidth=2)
+    ax1.axvline(best_beta, color="tab:red", linestyle="--", linewidth=1, label=f"Best β={best_beta:.3f}")
+    ax1.set_ylabel("Score")
+    ax1.set_ylim(0, 1)
+    ax1.legend()
+    ax1.grid(True, alpha=0.3)
+    ax1.set_title(title)
 
-best_f1 = 0
-best_beta = 2.0
+    ax2.plot(betas, f1s, color="tab:green", linewidth=2)
+    ax2.axvline(best_beta, color="tab:red", linestyle="--", linewidth=1)
+    ax2.scatter([best_beta], [best_f1], color="tab:red", zorder=5)
+    ax2.set_ylabel("F1")
+    ax2.set_xlabel("Holiday β")
+    ax2.grid(True, alpha=0.3)
 
-for epoch in range(N_EPOCHS):
-    # Детекция
-    detection_result = system.detect(time_series=time_series, dates=dates)
-    predictions = detection_result.is_anomaly.astype(int)
-    anomaly_scores = detection_result.anomaly_scores
+    plt.tight_layout()
+    plt.savefig(plot_path, dpi=150)
+    plt.show()
+    print(f"График сохранён: {plot_path}")
 
-    # backward — обучение без сброса
-    holiday_param = system.calculate_std_backward(
-        time_series=time_series,
-        dates=dates,
-        ground_truth=true_labels,
-        predicted=anomaly_scores
-    )
-
-    # Метрики
-    precision, recall, f1, tp, fp, fn = calculate_metrics(true_labels, predictions)
-
-    if f1 > best_f1:
-        best_f1 = f1
-        best_beta = holiday_param
-
-    if epoch % 10 == 0 or epoch < 10:
-        print(f"{epoch} {precision:<10.4f} {recall:<10.4f} {f1:<10.4f} {holiday_param:<10.4f}")
-
-print("=" * 70)
-print(f"\nЛучший F1: {best_f1:.4f} при β = {best_beta:.4f}")
-print(f"Финальный β после {N_EPOCHS} эпох: {system.holiday_param:.4f}")
+    return betas, f1s, best_beta, best_f1

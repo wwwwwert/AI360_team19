@@ -70,6 +70,8 @@ class AnomalyDetectionSystem:
         self.apply_holidays = self.detection_model_params.pop("apply_holidays", False)
         if self.apply_holidays:
             self.holiday_param = np.float64(2.0)
+            self._holiday_lr = self.detection_model_params.pop("holiday_lr", 0.068)
+            self._holiday_decay = 0.999
 
         self.original_model_params = {
             "detection_model_params": detection_model_params,
@@ -242,7 +244,8 @@ class AnomalyDetectionSystem:
             ],
             dates: list,
             predicted: np.array,
-            ground_truth: np.array
+            ground_truth: np.array,
+            holiday_mask: np.array = None,
     ) -> np.array:
         """
         Run the complete anomaly detection pipeline.
@@ -266,8 +269,14 @@ class AnomalyDetectionSystem:
             holiday_param=getattr(self, "holiday_param", None),
         )
 
-        new_param = detector.calculate_std_backward(dates, predicted, ground_truth)
+        if self.apply_holidays:
+            detector._holiday_lr = self._holiday_lr
+            detector._holiday_decay = self._holiday_decay
+
+        new_param = detector.calculate_std_backward(dates, predicted, ground_truth, holiday_mask=holiday_mask)
+
         if self.apply_holidays:
             self.holiday_param = new_param
+            self._holiday_lr = detector._holiday_lr
 
         return new_param

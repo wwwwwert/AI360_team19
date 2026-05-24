@@ -18,7 +18,7 @@ class STLDetector(BaseDetector):
         return {
             "threshold": 3.0,
             "smoothing": 1,
-            "seasonality": "auto",
+            "seasonality": "week",
             "seasonal_window": 3,
             "dst_weight": 1.0,
             "std_type": "mad",

@@ -70,6 +70,39 @@ class BaseDetector(ABC):
         else:
             return self._detect_univariate(time_series, dates=dates)
 
+    def _apply_holiday_envelope(self, std_array: np.ndarray, dates) -> np.ndarray:
+        """
+        Scale std_array with a raised-cosine envelope around each holiday.
+        At the holiday centre: multiplier = holiday_param (maximum widening).
+        At the window edge: multiplier = 0.5*(1 + holiday_param) (half the widening).
+        Outside the window: multiplier = 1.0 (no effect).
+        """
+        hols = holidays.RU()
+        window = 7  # days of influence on each side of the holiday
+
+        min_date = pd.Timestamp(dates.min()) - pd.Timedelta(days=window)
+        max_date = pd.Timestamp(dates.max()) + pd.Timedelta(days=window)
+        holiday_dates = [d for d in pd.date_range(min_date, max_date) if d in hols]
+
+        if not holiday_dates:
+            return std_array
+
+        days_diff = np.abs(
+            (dates.values[:, None] - pd.DatetimeIndex(holiday_dates).values)
+            / np.timedelta64(1, 'D')
+        )
+
+        # raised cosine: 1.0 at centre, 0.5 at edge, 0.0 outside
+        effect = np.where(
+            days_diff <= window,
+            0.5 * (1.0 + np.cos(np.pi * days_diff / window)),
+            0.0,
+        ).max(axis=1)
+
+        # multiplier: 1.0 where effect=0, holiday_param where effect=1
+        multiplier = 1.0 + (self.holiday_param - 1.0) * effect
+        return std_array * multiplier
+
     def calculate_std(self, residual: np.array, apply_holidays=False, dates=None, return_array=True) -> np.ndarray:
         def _calculate_std(self, residual: np.array) -> float:
             if self.params["std_type"] == "default":
@@ -104,44 +137,10 @@ class BaseDetector(ABC):
         ans = _calculate_std(self, residual)
 
         if apply_holidays and hasattr(self, 'holiday_param') and dates is not None:
-            hols = holidays.RU()
             if len(dates) != len(residual):
                 raise ValueError(f"Shapes mismatch: {len(dates)} != {len(residual)}")
-
-            if np.isscalar(ans):
-                std_array = np.full(len(residual), ans)
-            else:
-                std_array = ans.copy()
-
-            window = 7  # радиус влияния праздника в днях
-
-            # собираем все праздничные дни в нужном диапазоне
-            min_date = dates.min() - pd.Timedelta(days=window)
-            max_date = dates.max() + pd.Timedelta(days=window)
-            all_days = pd.date_range(min_date, max_date)
-            holiday_dates = [d for d in all_days if d in hols]
-
-            if holiday_dates:
-                # вычисляем расстояния от каждой даты до каждого праздника
-                # days_diff: shape (len(dates), len(holiday_dates))
-                days_diff = np.abs(
-                    (dates.values[:, None] - pd.DatetimeIndex(holiday_dates).values) / np.timedelta64(1, 'D')
-                )
-
-                # Поднятый косинус: эффект = 0.5*(1 + cos(π * dist / window)) внутри окна
-                effect = np.where(
-                    days_diff <= window,
-                    0.5 * (1 + np.cos(np.pi * days_diff / window)),
-                    0.0
-                )
-
-                # для каждой даты берём максимальный эффект от всех ближайших праздников
-                max_effect = effect.max(axis=1)
-
-                # применяем множитель: 1 + (param - 1) * effect
-                multiplier = 1.0 + (self.holiday_param - 1.0) * max_effect
-                std_array *= multiplier
-
+            std_array = np.full(len(residual), ans) if np.isscalar(ans) else ans.copy()
+            std_array = self._apply_holiday_envelope(std_array, dates)
             if return_array:
                 return std_array
             else:
@@ -151,34 +150,53 @@ class BaseDetector(ABC):
             return np.full(len(residual), ans)
         return ans
 
-    def calculate_std_backward(self, dates: list, predicted: np.array, ground_truth: np.array) -> float:
+    def calculate_std_backward(
+        self,
+        dates: list,
+        predicted: np.array,
+        ground_truth: np.array,
+        holiday_mask: np.array = None,
+    ) -> float:
         if not hasattr(self, 'holiday_param'):
             return np.float64(2.0)
 
-        hols = holidays.RU()
         lr = self._holiday_lr
         self._holiday_lr *= self._holiday_decay
 
         threshold = self.params.get("threshold", 3.0)
-        missed = 0      # gt=1, pred<threshold → нужно сузить std → уменьшить param
-        false_alarm = 0 # gt=0, pred>threshold → нужно расширить std → увеличить param
-        n_hol = 0
 
-        for i in range(len(dates)):
-            date_only = dates[i].date() if hasattr(dates[i], 'date') else pd.Timestamp(dates[i]).date()
-            if date_only not in hols:
-                continue
-            n_hol += 1
-            gt = ground_truth[i]
-            pred_score = predicted[i]
-            if gt == 1 and pred_score < threshold:
-                missed += 1
-            elif gt == 0 and pred_score > threshold:
-                false_alarm += 1
+        # Build boolean holiday mask: prefer explicit mask, fall back to holidays.RU
+        if holiday_mask is not None:
+            is_holiday = np.asarray(holiday_mask, dtype=bool)
+        else:
+            hols = holidays.RU()
+            is_holiday = np.array([
+                (d.date() if hasattr(d, 'date') else pd.Timestamp(d).date()) in hols
+                for d in dates
+            ])
 
-        if n_hol > 0:
-            net = (false_alarm - missed) / n_hol
-            self.holiday_param += lr * net
+        n_hol = int(is_holiday.sum())
+        if n_hol == 0:
+            return float(self.holiday_param)
+
+        scores_hol = predicted[is_holiday]
+        gt_hol = ground_truth[is_holiday].astype(int)
+
+        def _hard_f1_at(beta):
+            ratio = self.holiday_param / beta
+            pred_hol = (scores_hol * ratio > threshold).astype(int)
+            tp = int(((pred_hol == 1) & (gt_hol == 1)).sum())
+            fp = int(((pred_hol == 1) & (gt_hol == 0)).sum())
+            fn = int(((pred_hol == 0) & (gt_hol == 1)).sum())
+            p = tp / (tp + fp) if (tp + fp) > 0 else 0.0
+            r = tp / (tp + fn) if (tp + fn) > 0 else 0.0
+            return 2 * p * r / (p + r) if (p + r) > 0 else 0.0
+
+        # Grid search over candidate betas, pick the one maximising holiday F1
+        candidates = np.linspace(0.2, 5.0, 49)
+        best_beta = max(candidates, key=_hard_f1_at)
+        # Move toward best_beta with learning rate (don't jump directly — stay smooth)
+        self.holiday_param += lr * (best_beta - self.holiday_param)
 
         self.holiday_param = np.clip(self.holiday_param, 0.2, 5.0)
         return float(self.holiday_param)
@@ -246,9 +264,6 @@ class BaseDetector(ABC):
         if apply_holidays and hasattr(self, 'holiday_param') and dates is not None:
             if len(dates) != len(clipped):
                 raise ValueError(f"Shapes mismatch: {len(dates)} != {len(clipped)}")
-            hols = holidays.RU()
-            for i in range(len(dates)):
-                if dates[i] in hols:
-                    clipped[i] *= self.holiday_param
+            clipped = self._apply_holiday_envelope(clipped, dates)
 
         return clipped
