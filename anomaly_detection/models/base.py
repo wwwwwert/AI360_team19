@@ -113,22 +113,34 @@ class BaseDetector(ABC):
             else:
                 std_array = ans.copy()
 
-            holiday_multiplier = np.ones(len(dates))
+            window = 7  # радиус влияния праздника в днях
 
-            for i in range(len(dates)):
-                current_date = dates[i]
+            # собираем все праздничные дни в нужном диапазоне
+            min_date = dates.min() - pd.Timedelta(days=window)
+            max_date = dates.max() + pd.Timedelta(days=window)
+            all_days = pd.date_range(min_date, max_date)
+            holiday_dates = [d for d in all_days if d in hols]
 
-                for offset in range(-7, 8):
-                    check_date = current_date + pd.Timedelta(days=offset)
+            if holiday_dates:
+                # вычисляем расстояния от каждой даты до каждого праздника
+                # days_diff: shape (len(dates), len(holiday_dates))
+                days_diff = np.abs(
+                    (dates.values[:, None] - pd.DatetimeIndex(holiday_dates).values) / np.timedelta64(1, 'D')
+                )
 
-                    if check_date in hols:
-                        distance = abs(offset)
-                        if distance <= 7:
-                            multiplier = 1.0 - (distance / 7.0)
-                            # Применяем эффект: от 1 (без изменений) до holiday_param
-                            holiday_multiplier[i] *= (1.0 + (self.holiday_param - 1.0) * multiplier)
+                # Поднятый косинус: эффект = 0.5*(1 + cos(π * dist / window)) внутри окна
+                effect = np.where(
+                    days_diff <= window,
+                    0.5 * (1 + np.cos(np.pi * days_diff / window)),
+                    0.0
+                )
 
-            std_array *= holiday_multiplier
+                # для каждой даты берём максимальный эффект от всех ближайших праздников
+                max_effect = effect.max(axis=1)
+
+                # применяем множитель: 1 + (param - 1) * effect
+                multiplier = 1.0 + (self.holiday_param - 1.0) * max_effect
+                std_array *= multiplier
 
             if return_array:
                 return std_array
