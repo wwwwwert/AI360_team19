@@ -113,18 +113,15 @@ class BaseDetector(ABC):
             else:
                 std_array = ans.copy()
 
-            # Создаем маску с плавным нарастанием
             holiday_multiplier = np.ones(len(dates))
 
             for i in range(len(dates)):
                 current_date = dates[i]
 
-                # Проверяем дни в окне ±7 дней от текущей даты
                 for offset in range(-7, 8):
                     check_date = current_date + pd.Timedelta(days=offset)
 
                     if check_date in hols:
-                        # Линейная интерполяция: 1 в день праздника, 0 на расстоянии 7 дней
                         distance = abs(offset)
                         if distance <= 7:
                             multiplier = 1.0 - (distance / 7.0)
