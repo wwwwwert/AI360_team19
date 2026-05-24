@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from datetime import date
 
 import holidays
 import pandas as pd
@@ -9,6 +10,16 @@ import numpy as np
 from scipy import stats
 from statsmodels.robust.scale import qn_scale
 from ..core import TimeSeriesWrapper
+
+
+def _build_holiday_set(min_date: pd.Timestamp, max_date: pd.Timestamp) -> set:
+    """Russian holidays extended with Dec 25–31 pre-New-Year period."""
+    hols = holidays.RU(years=range(min_date.year, max_date.year + 1))
+    result = set(hols.keys())
+    for year in range(min_date.year, max_date.year + 1):
+        for day in range(25, 32):
+            result.add(date(year, 12, day))
+    return result
 
 
 class ModelResult(BaseModel):
@@ -77,12 +88,12 @@ class BaseDetector(ABC):
         At the window edge: multiplier = 0.5*(1 + holiday_param) (half the widening).
         Outside the window: multiplier = 1.0 (no effect).
         """
-        hols = holidays.RU()
         window = 7  # days of influence on each side of the holiday
 
         min_date = pd.Timestamp(dates.min()) - pd.Timedelta(days=window)
         max_date = pd.Timestamp(dates.max()) + pd.Timedelta(days=window)
-        holiday_dates = [d for d in pd.date_range(min_date, max_date) if d in hols]
+        hols = _build_holiday_set(min_date, max_date)
+        holiday_dates = [d for d in pd.date_range(min_date, max_date) if d.date() in hols]
 
         if not holiday_dates:
             return std_array
@@ -165,11 +176,12 @@ class BaseDetector(ABC):
 
         threshold = self.params.get("threshold", 3.0)
 
-        # Build boolean holiday mask: prefer explicit mask, fall back to holidays.RU
+        # Build boolean holiday mask: prefer explicit mask, fall back to extended holiday set
         if holiday_mask is not None:
             is_holiday = np.asarray(holiday_mask, dtype=bool)
         else:
-            hols = holidays.RU()
+            ts = pd.DatetimeIndex(dates)
+            hols = _build_holiday_set(ts.min(), ts.max())
             is_holiday = np.array([
                 (d.date() if hasattr(d, 'date') else pd.Timestamp(d).date()) in hols
                 for d in dates
