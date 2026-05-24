@@ -48,7 +48,7 @@ def sweep_beta(
         f1s.append(f1)
         print(f"  {i + 1:>3}/{n_points}  β={beta:.3f}  P={precision:.4f}  R={recall:.4f}  F1={f1:.4f}")
 
-    best_idx = int(np.argmax(f1s))
+    best_idx = int(np.argmax(np.round(f1s, 3)))
     best_beta = betas[best_idx]
     best_f1 = f1s[best_idx]
     print(f"\nЛучший F1={best_f1:.4f} при β={best_beta:.4f}")

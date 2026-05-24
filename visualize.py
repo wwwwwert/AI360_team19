@@ -4,7 +4,7 @@ from anomaly_detection.core.time_series import TimeSeriesWrapper
 from anomaly_detection.models.stl import STLDetector
 from visualize_common import plot_result, redraw_ax, setup_zoom_sync, add_holiday_slider
 
-HOLIDAY_PARAM_INIT = 2.0
+HOLIDAY_PARAM_INIT = 2.7
 
 
 def load_dataset(series_num: int) -> pd.DataFrame:
