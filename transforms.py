@@ -1,6 +1,9 @@
 from anomaly_detection import TimeSeriesWrapper, AnomalyDetectionSystem
 from anomaly_detection.models import STLDetector
+from scipy.interpolate import CubicSpline
+from typing import Literal
 import pandas as pd
+import numpy as np
 
 
 def linear_interpolate(
@@ -89,10 +92,6 @@ def linear_interpolate(
 
     return df
 
-import pandas as pd
-import numpy as np
-from scipy.interpolate import CubicSpline
-
 
 def spline_interpolate(
     df: pd.DataFrame,
@@ -160,9 +159,15 @@ def spline_interpolate(
 
     return df
 
+
+
+InterpolationType = Literal["linear", "spline"]
+
+
 def z_scores_anomaly_transform(
     series: TimeSeriesWrapper,
-    system: AnomalyDetectionSystem
+    system: AnomalyDetectionSystem,
+    method: InterpolationType = "linear"
 ) -> TimeSeriesWrapper:
 
     detector = AnomalyDetectionSystem.AVAILABLE_MODELS["STLDetector"](
@@ -171,10 +176,6 @@ def z_scores_anomaly_transform(
 
     z_scores = detector.z_scores(series)
     model_output = detector(series)
-
-    
-
-    
 
     df = series.time_series_pd
 
@@ -186,10 +187,16 @@ def z_scores_anomaly_transform(
         else z_scores
     )
 
-    df = spline_interpolate(
-        df,
-        value_column="z_score"
-    )
+    if (InterpolationType == "linear"):
+        df = linear_interpolate(
+            df,
+            value_column="z_score"
+        )
+    elif (InterpolationType == "spline"):
+        df = linear_interpolate(
+            df,
+            value_column="z_score"
+        )
 
     df["value_0"] = df["z_score"]
 
