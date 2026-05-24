@@ -525,7 +525,7 @@ with st.sidebar:
                 t("start_col"): [s.index.min() for s in series_dict.values()],
                 t("end_col"): [s.index.max() for s in series_dict.values()],
             })
-            st.dataframe(summary, use_container_width=True)
+            st.dataframe(summary, width='stretch')
 
         if series_errors:
             st.warning(t("read_failed", errors="\n".join(f"- {e}" for e in series_errors)))
@@ -706,7 +706,7 @@ with st.sidebar:
                 step=0.1,
             )
 
-    run_search = st.button(t("search_button"), type="primary", use_container_width=True)
+    run_search = st.button(t("search_button"), type="primary", width='stretch')
 
 
 if not series_dict:
@@ -818,7 +818,7 @@ with tab_query:
         key="query_minimap",
         on_select="rerun",
         selection_mode="box",
-        use_container_width=True,
+        width='stretch',
         config={"displaylogo": False},
     )
     selected_bounds = selected_bounds_from_plotly(minimap_event)
@@ -856,7 +856,7 @@ with tab_query:
         fillcolor="orange", opacity=0.15, line_width=0
     )
     fig.update_layout(height=400, xaxis_title="Time", yaxis_title="Value")
-    st.plotly_chart(fig, use_container_width=True)
+    st.plotly_chart(fig, width='stretch')
 
     col1, col2, col3 = st.columns(3)
     col1.metric(t("metric_start"), str(query.index[0])[:19])
@@ -1043,7 +1043,7 @@ with tab_results:
                         "intervals",
                     ]
                 ],
-                use_container_width=True,
+                width='stretch',
             )
 
             if matched_df.empty:
@@ -1058,7 +1058,7 @@ with tab_results:
             st.subheader(t("similar_top", count=len(results_df)))
             st.dataframe(
                 results_df[["series_id", "distance", "start_time", "end_time"]],
-                use_container_width=True
+                width='stretch'
             )
 
             selected_rank = st.selectbox(
@@ -1098,7 +1098,7 @@ with tab_results:
                 height=350,
                 title=f"#{selected_rank+1}: {row['series_id']} — distance={row['distance']:.4f}"
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
 
 with tab_overlay:
@@ -1167,7 +1167,7 @@ with tab_overlay:
                         yaxis_title="z-score",
                         title=t("matched_overlay_title"),
                     )
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width='stretch')
     elif not has_fresh_results(search_signature):
         st.info(t("press_search"))
     else:
@@ -1212,7 +1212,7 @@ with tab_overlay:
                 xaxis_title="Position in window",
                 yaxis_title="z-score"
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
 
 with tab_heatmap:
@@ -1260,7 +1260,7 @@ with tab_heatmap:
                     yaxis_title="Series",
                     title=t("overlap_score_title"),
                 )
-                st.plotly_chart(fig, use_container_width=True)
+                st.plotly_chart(fig, width='stretch')
     elif not has_fresh_results(search_signature):
         st.info(t("press_search"))
     else:
@@ -1294,7 +1294,7 @@ with tab_heatmap:
                 yaxis_title="Series",
                 yaxis=dict(autorange="reversed")
             )
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width='stretch')
 
 
 with tab_anomalies:
@@ -1382,7 +1382,7 @@ with tab_anomalies:
             xaxis_title="Time",
             yaxis_title="Value",
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
         intervals_df = pd.DataFrame(
             [
@@ -1399,4 +1399,4 @@ with tab_anomalies:
         if intervals_df.empty:
             st.info(t("no_anomaly_intervals"))
         else:
-            st.dataframe(intervals_df, use_container_width=True)
+            st.dataframe(intervals_df, width='stretch')
